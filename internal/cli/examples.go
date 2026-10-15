@@ -1291,6 +1291,8 @@ var examples = map[string][]string{
 		"proton pass items list",
 		"proton pass items list --vault Work",
 		"proton pass items list --type login",
+		"proton pass items list --folder Personal/Banking",
+		"proton pass items list --folder Personal/Banking --recursive",
 		"proton pass items list --risk reused",
 		"proton pass items list --risk weak --vault Work",
 		"proton pass items list --risk missing-2fa",
@@ -1324,6 +1326,8 @@ var examples = map[string][]string{
 	},
 	"proton pass items create": {
 		"proton pass items create --name GitHub --username roman --url github.com --generate-password",
+		"proton pass items create --name GitHub --url github.com --url never:https://gist.github.com --generate-password",
+		"proton pass items create --name 'Bank Austria' --username roman --folder Personal/Banking --generate-password",
 		"proton pass items create --type note --name Passport --attach ~/scans/passport.pdf",
 		"proton pass items create --name Router --generate-password --words 5",
 		"proton pass items create --type note --name 'Door codes' --note 'Front: 1234'",
@@ -1334,6 +1338,7 @@ var examples = map[string][]string{
 		"proton pass items update GitHub --secret-file password=/run/secrets/github",
 		"proton pass items update GitHub --secret-file password=-",
 		"proton pass items update GitHub --username roman-16 --url github.com",
+		"proton pass items update GitHub --url github.com --url exact-url:https://github.com/login",
 		"proton pass items update GitHub --generate-password",
 		"proton pass items update Passport --attach ~/scans/visa.pdf --detach passport.pdf",
 		"proton pass items update shop --display-name 'Jane R'",
@@ -1343,6 +1348,8 @@ var examples = map[string][]string{
 	},
 	"proton pass items move": {
 		"proton pass items move github.com --into Work",
+		"proton pass items move 'Bank Austria' --into Personal/Banking",
+		"proton pass items move --folder Personal/Old --into Personal/Archive",
 	},
 	"proton pass items revisions list": {
 		"proton pass items revisions list github.com",
@@ -1374,13 +1381,24 @@ var examples = map[string][]string{
 	"proton pass items trash": {
 		"proton pass items trash GitHub",
 		"proton pass items trash --vault Work --older-than 1y",
+		"proton pass items trash --folder Personal/Old --recursive",
 	},
 	"proton pass items delete": {
 		"proton pass items delete GitHub",
 		"proton pass items delete --vault Work --all --yes",
 	},
-	"proton pass vaults list": {"proton pass vaults list"},
-	"proton pass vaults get":  {"proton pass vaults get Work"},
+	"proton pass folders list": {
+		"proton pass folders list",
+		"proton pass folders list --vault Personal",
+	},
+	"proton pass folders create": {
+		"proton pass folders create --name Banking --vault Personal",
+		"proton pass folders create --name Cards --parent Personal/Banking",
+	},
+	"proton pass folders update": {"proton pass folders update Personal/Banking --name Finance"},
+	"proton pass folders delete": {"proton pass folders delete Personal/Old"},
+	"proton pass vaults list":    {"proton pass vaults list"},
+	"proton pass vaults get":     {"proton pass vaults get Work"},
 	"proton pass vaults create": {
 		"proton pass vaults create --name Work",
 	},

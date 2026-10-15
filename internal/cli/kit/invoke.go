@@ -430,7 +430,7 @@ func Create(c *Invocation, spec ui.ResultSpec, apply func() (string, error)) err
 		return err
 	}
 	spec.IDs = []string{id}
-	spec.EmitID = true
+	spec.EmitIDs = true
 	return c.result(spec)
 }
 
@@ -586,6 +586,40 @@ func Attempt[T any](c *Invocation, spec ui.ResultSpec, apply func() ([]T, error)
 	// land is named rather than left to a count that does not add up.
 	for _, s := range skipped {
 		c.Warn("%v", s)
+	}
+	return nil
+}
+
+// Relocate puts many things somewhere else and reports the IDs they answer to
+// afterwards, one to a line on stdout.
+//
+// It is separate from Attempt because what comes out is not what went in: a
+// thing moved where it is addressed by its container as well as itself has a new
+// ID, and the next command needs that one. What was refused is named after the
+// result, with the reason.
+func Relocate[T any](c *Invocation, spec ui.ResultSpec, apply func() ([]string, []T, error)) error {
+	if c.App.DryRun {
+		if err := c.preview(&spec); err != nil {
+			return err
+		}
+		return c.result(spec)
+	}
+	if err := consent(c, c.unread(spec)); err != nil {
+		return err
+	}
+	if spec.Count == 0 {
+		return c.result(spec)
+	}
+	moved, refused, err := apply()
+	if err != nil {
+		return err
+	}
+	spec.Count, spec.IDs, spec.EmitIDs = len(moved), moved, true
+	if err := c.result(spec); err != nil {
+		return err
+	}
+	for _, r := range refused {
+		c.Warn("%v", r)
 	}
 	return nil
 }

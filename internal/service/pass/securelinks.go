@@ -63,11 +63,11 @@ func (s *Service) SecureLinkCreate(ctx context.Context, shareID, itemID string, 
 	if err != nil {
 		return nil, err
 	}
-	itemKey, rotation, err := s.latestItemKey(ctx, sk, shareID, itemID)
+	head, err := s.itemHead(ctx, shareID, itemID)
 	if err != nil {
 		return nil, err
 	}
-	revision, err := s.itemRevision(ctx, shareID, itemID)
+	itemKey, rotation, err := s.latestItemKey(ctx, sk, shareID, itemID)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +88,7 @@ func (s *Service) SecureLinkCreate(ctx context.Context, shareID, itemID string, 
 	}
 
 	body := map[string]any{
-		"Revision":                    revision,
+		"Revision":                    head.Revision,
 		"EncryptedItemKey":            base64.StdEncoding.EncodeToString(sealedItemKey),
 		"EncryptedLinkKey":            base64.StdEncoding.EncodeToString(sealedLinkKey),
 		"ExpirationTime":              int(opts.Expires.Seconds()),

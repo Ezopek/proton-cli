@@ -55,10 +55,19 @@ type ExportDocument struct {
 
 // ExportedVault is one vault and everything in it.
 type ExportedVault struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	Display     ExportedDisplay `json:"display"`
-	Items       []ExportedItem  `json:"items"`
+	Name        string           `json:"name"`
+	Description string           `json:"description"`
+	Display     ExportedDisplay  `json:"display"`
+	Folders     []ExportedFolder `json:"folders"`
+	Items       []ExportedItem   `json:"items"`
+}
+
+// ExportedFolder is one folder inside a vault. A folder at the top of the vault
+// has no parent.
+type ExportedFolder struct {
+	FolderID       string  `json:"folderId"`
+	ParentFolderID *string `json:"parentFolderId"`
+	Name           string  `json:"name"`
 }
 
 // ExportedDisplay is how the vault looks, as the numbers the protobuf stores
@@ -81,6 +90,9 @@ type ExportedItem struct {
 	// Files are the item's attachments, named as they are inside the archive.
 	// An item with none carries an empty list, which is what the app writes.
 	Files []string `json:"files"`
+	// FolderID is the folder the item is in, and null for one at the top of
+	// its vault.
+	FolderID *string `json:"folderId"`
 }
 
 // ExportedData is an item's decrypted content: what kind it is, what it is
@@ -121,6 +133,7 @@ type StoredItem struct {
 	CreateTime int64
 	ModifyTime int64
 	Files      []string
+	FolderID   string
 }
 
 // NewDocument is an empty export for an account.
@@ -174,6 +187,10 @@ func ExportItem(in StoredItem) (*ExportedItem, error) {
 	if in.Alias != "" {
 		alias := in.Alias
 		out.AliasEmail = &alias
+	}
+	if in.FolderID != "" {
+		folder := in.FolderID
+		out.FolderID = &folder
 	}
 	return out, nil
 }
@@ -390,7 +407,7 @@ func csvRow(item ExportedItem, vault string) ([]string, error) {
 	var urls, autofill, email, username, password, totp string
 	switch c := content.GetContent().(type) {
 	case *pb.Content_Login:
-		urls = strings.Join(LoginURLs(c.Login), ", ")
+		urls = strings.Join(defaultURLs(LoginURLs(c.Login)), ", ")
 		autofill, err = autofillJSON(c.Login)
 		if err != nil {
 			return nil, err

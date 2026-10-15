@@ -139,7 +139,7 @@ func TestALoginWrittenBeforeAutofillRules(t *testing.T) {
 	doc := readDocument(t, `{"version":"1.20.0","vaults":{"s-1":{"name":"Personal","items":[
 		{"data":{"metadata":{"name":"GitHub"},"type":"login","content":{"urls":["https://github.com"]}}}]}}}`)
 	login := doc.Vaults[0].Items[0].Item.GetContent().GetLogin()
-	if got := LoginURLs(login); len(got) != 1 || got[0] != "https://github.com" {
+	if got := LoginURLs(login); len(got) != 1 || got[0].Value != "https://github.com" {
 		t.Errorf("the URLs came back as %v", got)
 	}
 	if len(login.GetAutofillUrls()) != 1 {
@@ -253,6 +253,24 @@ func TestTheAppsOwnCSVIsRead(t *testing.T) {
 	}
 	if got := card.Item.GetMetadata().GetNote(); got != "mine" {
 		t.Errorf("the card's note came back as %q", got)
+	}
+}
+
+// A rule that keeps a login from filling on a page comes back as that rule, and
+// stays out of the plain list an older app fills from.
+func TestACSVKeepsEachAddresssRule(t *testing.T) {
+	body := strings.Join([]string{
+		strings.Join(csvColumns, ","),
+		`login,GitHub,https://github.com,"[{""url"":""https://github.com"",""mode"":0},{""url"":""https://gist.github.com"",""mode"":2}]",,jane,pw,,,0,0,Work`,
+	}, "\n")
+	doc := opened(t, written(t, "export.csv", []byte(body)), Proton, neverAsked(t))
+	login := doc.Vaults[0].Items[0].Item.GetContent().GetLogin()
+	got := LoginURLs(login)
+	if len(got) != 2 || got[1].String() != "never:https://gist.github.com" {
+		t.Errorf("the rules came back as %v", got)
+	}
+	if urls := login.GetUrls(); len(urls) != 1 || urls[0] != "https://github.com" {
+		t.Errorf("an older app would fill on %v", urls)
 	}
 }
 

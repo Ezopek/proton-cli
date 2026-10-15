@@ -28,7 +28,7 @@ func loginExport(t *testing.T) ExportedItem {
 		ItemEmail: "jane@example.com", ItemUsername: "jane", Password: "hunter2",
 		TotpUri: "otpauth://totp/GitHub?secret=JBSWY3DPEHPK3PXP",
 	}
-	SetLoginURLs(login, []string{"https://github.com"})
+	SetLoginURLs(login, []URLRule{{Value: "https://github.com"}})
 	item := &pb.Item{
 		Metadata: &pb.Metadata{Name: "GitHub", Note: "the note", ItemUuid: "u-1"},
 		Content:  &pb.Content{Content: &pb.Content_Login{Login: login}},
@@ -62,7 +62,7 @@ func TestAnExportReadsBackAsWhatWentIn(t *testing.T) {
 	if login.GetPassword() != "hunter2" || login.GetItemEmail() != "jane@example.com" {
 		t.Errorf("the login came back as %v", login)
 	}
-	if got := LoginURLs(login); len(got) != 1 || got[0] != "https://github.com" {
+	if got := LoginURLs(login); len(got) != 1 || got[0].Value != "https://github.com" {
 		t.Errorf("the URLs came back as %v", got)
 	}
 	if len(entry.Item.GetExtraFields()) != 1 ||
@@ -241,7 +241,7 @@ func TestTheCSVReadsBackAsWhatWentIn(t *testing.T) {
 	if login.GetPassword() != "hunter2" || login.GetItemUsername() != "jane" {
 		t.Errorf("the login came back as %v", login)
 	}
-	if got := LoginURLs(login); len(got) != 1 || got[0] != "https://github.com" {
+	if got := LoginURLs(login); len(got) != 1 || got[0].Value != "https://github.com" {
 		t.Errorf("the URLs came back as %v", got)
 	}
 }

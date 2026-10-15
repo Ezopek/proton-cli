@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"io"
+	"slices"
 	"strings"
 	"testing"
 
@@ -69,31 +70,32 @@ func TestABitwardenExportIsRead(t *testing.T) {
 	}
 }
 
-// A folder becomes a vault, and an item in none lands wherever the import is
-// pointed.
-func TestABitwardenFolderBecomesAVault(t *testing.T) {
+// A folder is where an item is filed inside the vault it lands in, and an item
+// in none is filed at the top.
+func TestABitwardenFolderFilesTheItem(t *testing.T) {
 	doc := opened(t, bitwardenExportFile(t), "bitwarden", nil)
-	if len(doc.Vaults) != 2 {
-		t.Fatalf("read %d vaults, want 2", len(doc.Vaults))
+	if len(doc.Vaults) != 1 || doc.Vaults[0].Name != "" {
+		t.Fatalf("the vaults came back as %v, want one the import is pointed at", vaultNames(doc))
 	}
 	var work, unfiled bool
-	for _, v := range doc.Vaults {
-		work = work || v.Name == "Work"
-		unfiled = unfiled || v.Name == ""
+	for _, entry := range doc.Vaults[0].Items {
+		work = work || slices.Equal(entry.Folder, []string{"Work"})
+		unfiled = unfiled || len(entry.Folder) == 0
 	}
 	if !work || !unfiled {
-		t.Errorf("the vaults came back as %v", vaultNames(doc))
+		t.Error("an item was not filed in Work, or none was left at the top")
 	}
 }
 
 // An organisation's export files items in collections and leaves every folder
-// empty.
+// empty, and a name with a / in it is a folder inside another.
 func TestABitwardenOrganisationExportFollowsItsCollections(t *testing.T) {
-	body := `{"encrypted":false,"folders":[],"collections":[{"id":"c-1","name":"Engineering"}],
+	body := `{"encrypted":false,"folders":[],"collections":[{"id":"c-1","name":"Engineering / Keys"}],
 		"items":[{"id":"i-1","type":2,"name":"A note","folderId":null,"collectionIds":["c-1"]}]}`
 	doc := opened(t, written(t, "org.json", []byte(body)), "bitwarden", nil)
-	if len(doc.Vaults) != 1 || doc.Vaults[0].Name != "Engineering" {
-		t.Errorf("the vaults came back as %v", vaultNames(doc))
+	entry := itemNamed(t, doc, "A note")
+	if !slices.Equal(entry.Folder, []string{"Engineering", "Keys"}) {
+		t.Errorf("the note was filed in %q", entry.Folder)
 	}
 }
 

@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -40,6 +41,9 @@ type Column[T any] struct {
 	Flex bool
 	// Right aligns the cell to the right, for counts and sizes.
 	Right bool
+	// Sparse leaves the column out of a table in which no row has anything to
+	// put in it.
+	Sparse bool
 }
 
 // role is the cell's meaning, or Plain when the column declares none.
@@ -152,7 +156,7 @@ func envelope[T any](spec TableSpec[T], items []T) map[string]any {
 }
 
 func writeTable[T any](u *UI, spec TableSpec[T], items []T) {
-	cols := spec.Columns
+	cols := filled(spec.Columns, items)
 	short := u.ShortIDs()
 
 	rows := make([][]string, 0, len(items))
@@ -225,6 +229,18 @@ func writeTable[T any](u *UI, spec TableSpec[T], items []T) {
 		}
 		_, _ = fmt.Fprintln(u.Out, strings.Join(cells[:last+1], "  "))
 	}
+}
+
+// filled is the columns with every sparse one that no row fills left out.
+func filled[T any](cols []Column[T], items []T) []Column[T] {
+	out := make([]Column[T], 0, len(cols))
+	for _, c := range cols {
+		if c.Sparse && !slices.ContainsFunc(items, func(it T) bool { return c.Cell(it) != "" }) {
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
 }
 
 // cellPaint is how one cell is painted, decided while the row is built so the

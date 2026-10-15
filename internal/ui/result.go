@@ -156,9 +156,10 @@ type ResultSpec struct {
 	Name string
 	// Detail is a trailing clause: "to trash", "to /Documents", "as read".
 	Detail string
-	// EmitID prints the first ID on Out in text mode, so a script can capture
-	// what was just created with a plain assignment.
-	EmitID bool
+	// EmitIDs prints the IDs on Out in text mode, one to a line, so a script can
+	// capture what was just made, or where something now answers, with a plain
+	// assignment.
+	EmitIDs bool
 	// DryRun switches to the preview form. Preview, when set, draws the
 	// selection that would have been affected.
 	DryRun  bool
@@ -207,8 +208,12 @@ func Result(u *UI, spec ResultSpec) error {
 		return nil
 	}
 
-	if spec.EmitID && len(spec.IDs) > 0 && spec.IDs[0] != "" {
-		_, _ = fmt.Fprintln(u.Out, spec.IDs[0])
+	if spec.EmitIDs {
+		for _, id := range spec.IDs {
+			if id != "" {
+				_, _ = fmt.Fprintln(u.Out, id)
+			}
+		}
 	}
 	if !u.Quiet {
 		_, _ = fmt.Fprintf(u.Err, "%s %s\n", u.errStyle.Paint(Success, GlyphSuccess), spec.message())

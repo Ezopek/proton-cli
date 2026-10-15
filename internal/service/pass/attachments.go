@@ -618,6 +618,8 @@ type Limits struct {
 	// AliasDomains says whether the account may bring a domain of its own for
 	// aliases to be made on.
 	AliasDomains bool
+	// Folders is what the plan allows of folders inside a vault.
+	Folders FolderLimits
 }
 
 // freePlan is how Proton names the plan that costs nothing.
@@ -648,6 +650,10 @@ func (s *Service) Limits(ctx context.Context) (*Limits, error) {
 				StorageUsed        int64
 				StorageQuota       int64
 				VaultLimit         *int
+				FolderAllowed      bool
+				FolderMaxCount     *int
+				FolderMaxChildren  *int
+				FolderMaxDepth     *int
 			}
 		}
 	}
@@ -667,7 +673,22 @@ func (s *Service) Limits(ctx context.Context) (*Limits, error) {
 		Vaults:       plan.VaultLimit,
 		Free:         plan.Type == freePlan,
 		AliasDomains: plan.ManageAlias,
+		Folders: FolderLimits{
+			Allowed:     plan.FolderAllowed,
+			MaxCount:    orDefault(plan.FolderMaxCount, defaultFolderCount),
+			MaxChildren: orDefault(plan.FolderMaxChildren, defaultFolderChildren),
+			MaxDepth:    orDefault(plan.FolderMaxDepth, defaultFolderDepth),
+		},
 	}, nil
+}
+
+// orDefault is a limit the plan names, or the one Proton applies when it names
+// none.
+func orDefault(limit *int, otherwise int) int {
+	if limit == nil {
+		return otherwise
+	}
+	return *limit
 }
 
 // ── judging a file before it is sent ──

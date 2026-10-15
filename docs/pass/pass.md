@@ -4,7 +4,7 @@ Vaults, logins and secrets.
 
 Every command under `proton pass`, with the arguments and flags it takes. For these commands in use, see [the pass guide](README.md).
 
-Holds `aliases`, `breaches`, `export`, `generate`, `import`, `invitations`, `items`, `links`, `settings`, `shared`, `sharing`, `trash` and `vaults`.
+Holds `aliases`, `breaches`, `export`, `folders`, `generate`, `import`, `invitations`, `items`, `links`, `settings`, `shared`, `sharing`, `trash` and `vaults`.
 
 ## `export`
 
@@ -79,6 +79,8 @@ Read items in from a password manager's export, or one on stdin with -.
 --manager names the program that wrote the file, and defaults to Proton Pass: its archive, the document inside one, or its CSV. Each other value reads what that program exports - 1Password .1pux, .1pif or .zip, Bitwarden .json or .zip, Dashlane .csv or .zip, KeePass .xml, Kaspersky .txt, and CSV or JSON for the rest.
 
 A vault, folder or group in the file lands in the vault of that name, which is created if it does not exist. Items in none land in your first vault. --vault puts everything into the one you name.
+
+Bitwarden's folders and collections become folders in the vault the items land in, and a folder already there takes its items. On a plan without folders, each becomes a vault, or is left out under --vault.
 
 Items are always added, never matched against what is already there, so reading the same file twice creates duplicates.
 

@@ -4,6 +4,7 @@ import (
 	stdctx "context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -13,7 +14,9 @@ import (
 	"github.com/roman-16/proton-cli/internal/credcheck"
 	"github.com/roman-16/proton-cli/internal/errs"
 	"github.com/roman-16/proton-cli/internal/otp"
+	"github.com/roman-16/proton-cli/internal/passfile"
 	passsvc "github.com/roman-16/proton-cli/internal/service/pass"
+	pb "github.com/roman-16/proton-cli/internal/service/pass/proto"
 	"github.com/roman-16/proton-cli/internal/ui"
 	"github.com/roman-16/proton-cli/internal/units"
 	"github.com/spf13/cobra"
@@ -38,48 +41,62 @@ func itemsCmd() *cobra.Command {
 	return c
 }
 
-// itemsMoveCmd puts an item in another vault.
+// itemsMoveCmd puts items in another vault, or in a folder.
 //
-// An item is sealed under the key of the share it lives in, so moving it means
-// sealing it again under the destination's. It keeps its history and gets a new
-// ID, because an item in Pass is only unique together with its vault - so the
-// new one is printed the way a creation's is.
+// An item is sealed under the key of where it is, so moving it means sealing it
+// again under the key of where it goes. One that leaves its vault gets a new
+// ID, because an item in Pass is only unique together with its vault - so every
+// moved item's reference is printed the way a creation's is.
 func itemsMoveCmd() *cobra.Command {
+	var f filters
 	var into string
 	c := &cobra.Command{
-		Use:   "move REF",
-		Short: "Put an item in another vault",
-		Long: "Put an item in another vault.\n\n" +
-			"The item keeps its history and everything it holds, but gets a new ID: an\n" +
-			"item in Pass is identified by its vault as well as itself. The new ID is\n" +
-			"printed on stdout.",
-		RunE: kit.Run([]kit.Step{kit.StepExpand, func(*kit.Invocation) error {
-			if into == "" {
-				return kit.Fail("Which vault should it go into?").Hint("--into Work")
-			}
-			return nil
-		}}, func(c *kit.Invocation) error {
-			shareID, itemID, err := resolveItem(c, c.Args[0])
-			if err != nil {
-				return err
-			}
-			vault, err := vaultList(c).Find(c.Ctx, into)
-			if err != nil {
-				return err
-			}
-			return kit.Create(c, ui.ResultSpec{
-				Action: ui.Moved, Kind: "items", Detail: "into " + vault.Name,
-			}, func() (string, error) {
-				moved, err := c.App.Pass.ItemMove(c.Ctx, shareID, itemID, vault.ShareID)
+		Use:   "move [REF...]",
+		Short: "Put items in another vault or folder",
+		Long: "Put items in another vault or folder.\n\n" +
+			"--into is a vault, or a folder by its path from its vault: Personal/Banking.\n" +
+			"A vault alone is its top, outside every folder. Putting items in a folder\n" +
+			"needs a paid Pass plan.\n\n" +
+			"Items keep their history and everything they hold. One moved to another\n" +
+			"vault gets a new ID. Each moved item's ID is printed on stdout.",
+		RunE: kit.Run([]kit.Step{f.check, kit.StepSelection(f.set, itemFilterHint, itemScope), kit.StepExpand},
+			func(c *kit.Invocation) error {
+				to, err := resolvePlace(c, into)
 				if err != nil {
-					return "", err
+					return err
 				}
-				return kit.JoinPair(vault.ShareID, moved), nil
-			})
-		}),
+				if to.FolderID != "" {
+					if err := c.App.Pass.CheckFiling(c.Ctx); err != nil {
+						return err
+					}
+				}
+				sel, err := selectItems(c, &f)
+				if err != nil {
+					return err
+				}
+				var rows []passsvc.Item
+				var ids []string
+				for _, it := range sel.Rows {
+					if it.ShareID == to.ShareID && it.FolderID == to.FolderID {
+						continue
+					}
+					rows = append(rows, it)
+					ids = append(ids, itemRef(it))
+				}
+				return kit.Relocate(c, ui.ResultSpec{
+					Action: ui.Moved, Kind: "items", Count: len(rows), IDs: ids,
+					Name:    kit.Sole(rows, func(it passsvc.Item) string { return it.Name }),
+					Detail:  "into " + to.Label,
+					Preview: kit.Preview("items", itemColumns(), rows),
+				}, func() ([]string, []passsvc.MoveRefusal, error) {
+					return c.App.Pass.ItemsMove(c.Ctx, rows, to)
+				})
+			}),
 	}
-	c.Flags().StringVar(&into, "into", "", "Which vault to put it in, by name or ID")
-	kit.Completes(c, "into", nil, "pass vaults")
+	c.Flags().StringVar(&into, "into", "", "Where to put them: a vault, or a folder by path or ID")
+	_ = c.MarkFlagRequired("into")
+	kit.Completes(c, "into", nil, "pass vaults", "pass folders")
+	f.register(c)
 	return c
 }
 
@@ -95,6 +112,7 @@ func itemColumns() []ui.Column[passsvc.Item] {
 			return it.Email
 		}},
 		{Header: "MODIFIED", Cell: func(it passsvc.Item) string { return units.Time(it.ModifyTime) }},
+		{Header: "FOLDER", Sparse: true, Cell: func(it passsvc.Item) string { return it.Folder }},
 	}
 }
 
@@ -161,7 +179,7 @@ func itemsListCmd() *cobra.Command {
 			"--excluded keeps only the logins excluded from Pass Monitor, which no check\n" +
 			"looks at. `items include` brings one back.\n\n" +
 			"No check prints a password; `items get` is still the only command that does.",
-		RunE: kit.Run(nil, func(c *kit.Invocation) error {
+		RunE: kit.Run([]kit.Step{f.check}, func(c *kit.Invocation) error {
 			items, err := matchMonitorItems(c, &f, risk, excluded)
 			if err != nil {
 				return err
@@ -225,12 +243,16 @@ func matchMonitorItems(c *kit.Invocation, f *filters, risk *kit.Enum, excluded b
 		}
 		return out, nil
 	}
-	vaultRef, err := kit.Expand(c.App, f.vault)
+	vaultRef, folders, err := f.place(c)
 	if err != nil {
 		return nil, err
 	}
-	return c.App.Pass.AtRisk(c.Ctx, vaultRef, passsvc.Risk(chosen),
+	items, err := c.App.Pass.AtRisk(c.Ctx, vaultRef, passsvc.Risk(chosen),
 		&http.Client{Timeout: corpusTimeout})
+	if err != nil {
+		return nil, err
+	}
+	return inPlace(items, folders), nil
 }
 
 // corpusTimeout bounds one bucket fetch. The corpus is somebody else's host, and
@@ -299,6 +321,7 @@ func itemFields(it *passsvc.FullItem) []ui.Field {
 	fields := []ui.Field{
 		{Label: "Type", Value: it.Type},
 		{Label: "Name", Value: it.Name, Handle: true},
+		{Label: "Folder", Value: it.Folder},
 		{Label: "Username", Value: it.Username},
 		{Label: "Email", Value: it.Email},
 		{Label: "Alias", Value: it.Alias, Handle: true},
@@ -363,6 +386,11 @@ var sharedWithEveryItem = map[string]bool{"email": true}
 // An empty type is one not yet known, which is what an edit has until the item
 // is fetched: the grammar can still be judged, the placement cannot.
 func (d *fields) checkFields(itemType string) error {
+	rules, err := urlRules(d.urls)
+	if err != nil {
+		return err
+	}
+	d.nc.URLs = rules
 	// A value no code can come out of is refused here rather than stored and found
 	// useless later, on the day somebody needs the code.
 	if d.nc.TOTP != "" {
@@ -383,6 +411,49 @@ func (d *fields) checkFields(itemType string) error {
 			Hint("drop the section, or --type custom")
 	}
 	return nil
+}
+
+// urlRules reads what --url was given, refusing what Pass would not fill under:
+// a rule with nothing after it, a rule naming an address that is not one, the
+// same rule twice, and a regular expression, which only the app sets.
+func urlRules(values []string) ([]passfile.URLRule, error) {
+	if values == nil {
+		return nil, nil
+	}
+	rules := make([]passfile.URLRule, 0, len(values))
+	seen := map[string]bool{}
+	for _, v := range values {
+		rule := passfile.ParseURLRule(v)
+		switch {
+		case strings.TrimSpace(rule.Value) == "":
+			return nil, kit.Fail("--url %s has nothing after the rule.", v).Hint(urlRuleHint)
+		case rule.Mode == pb.AutofillUrl_RegularExpression:
+			return nil, kit.Fail("A regular expression rule is checked by the Pass apps in ways this program cannot repeat; set it in the app.")
+		case rule.Mode != pb.AutofillUrl_Default && rule.Address() && !isAddress(rule.Value):
+			return nil, kit.Fail("--url %s: %s is not an address.", v, rule.Value).Hint(urlRuleHint)
+		case seen[rule.String()]:
+			return nil, kit.Fail("--url %s is given twice.", v)
+		}
+		seen[rule.String()] = true
+		rules = append(rules, rule)
+	}
+	return rules, nil
+}
+
+// urlRuleHint is a --url that names a rule.
+const urlRuleHint = "--url never:https://gist.github.com"
+
+// isAddress reports whether s is a web address, written with its scheme or
+// without one.
+func isAddress(s string) bool {
+	if strings.ContainsAny(s, " \t") {
+		return false
+	}
+	if !strings.Contains(s, "://") {
+		s = "https://" + s
+	}
+	u, err := url.Parse(s)
+	return err == nil && u.Hostname() != ""
 }
 
 // capitalise makes a service's error read as the sentence a refusal is.
@@ -425,6 +496,9 @@ type fields struct {
 	// take off it, which only an edit can do.
 	attach []string
 	detach []string
+	// urls are what --url was given, each an address with its rule in front
+	// when it is not the default.
+	urls []string
 }
 
 // readAttachments turns what --attach named into files ready to send, and
@@ -516,7 +590,7 @@ func (d *fields) register(c *cobra.Command, verb string) {
 	f.StringVar(&d.nc.Name, "name", "", verb+" the item's name")
 	f.StringVar(&d.nc.Username, "username", "", verb+" the username (login)")
 	f.StringVar(&d.nc.Email, "email", "", verb+" the email address (login)")
-	f.StringVar(&d.nc.URL, "url", "", verb+" the URL (login)")
+	f.StringArrayVar(&d.urls, "url", nil, verb+" a URL, with a rule in front to fill it more narrowly (login, repeatable)")
 	f.StringVar(&d.nc.Note, "note", "", verb+" the note")
 	// A field states its own section, so the flag stays one self-contained token
 	// that can be given in any order and read back exactly as it was written.
@@ -618,7 +692,7 @@ func noteChangeable(c *kit.Invocation, shareID, itemID string) error {
 
 func itemsCreateCmd() *cobra.Command {
 	var d fields
-	var vault string
+	var vault, folder string
 	itemType := &kit.Enum{
 		Name: "type", Usage: "What kind of item", Default: "login", Values: itemTypes,
 	}
@@ -636,6 +710,11 @@ func itemsCreateCmd() *cobra.Command {
 			"or any name at all, which makes a hidden custom field of it.\n\n" +
 			"--generate-password makes one instead, so a new login needs no file: it is\n" +
 			"shaped by the same flags `pass generate` takes.\n\n" +
+			"--url takes an address, which fills on it, its parent domain and their\n" +
+			"subdomains. A rule in front fills it more narrowly: exact-host:, exact-url:,\n" +
+			"starts-with:, pattern: or never:. A regex: rule can only be set in the app.\n\n" +
+			"--folder names a folder by its path from its vault, Personal/Banking, and\n" +
+			"needs a paid Pass plan.\n\n" +
 			"--attach puts a local file on the item, and needs a paid Pass plan.",
 		// What a field says, whether this kind of item has a section to put it
 		// under, and whether a file named by --attach is there to be read are all
@@ -677,7 +756,7 @@ func itemsCreateCmd() *cobra.Command {
 				return err
 			}
 			d.nc.Attach = reporting(c, files)
-			shareID, err := resolveVault(c, vault)
+			shareID, err := placeNew(c, &d.nc, vault, folder)
 			if err != nil {
 				return err
 			}
@@ -698,7 +777,27 @@ func itemsCreateCmd() *cobra.Command {
 	itemType.Register(c)
 	security.Register(c)
 	c.Flags().StringVar(&vault, "vault", "", "Which vault, by name or ID (default: your first)")
+	c.Flags().StringVar(&folder, "folder", "", "Put it in this folder, by path or ID")
+	kit.Completes(c, "folder", nil, "pass folders")
+	kit.Exclusive(c, "vault", "folder")
 	return c
+}
+
+// placeNew is the vault a new item goes in, and the folder inside it when one
+// was named, which the plan has to allow.
+func placeNew(c *kit.Invocation, nc *passsvc.NewItem, vault, folder string) (string, error) {
+	if folder == "" {
+		return resolveVault(c, vault)
+	}
+	in, err := resolveFolder(c, folder)
+	if err != nil {
+		return "", err
+	}
+	if err := c.App.Pass.CheckFiling(c.Ctx); err != nil {
+		return "", err
+	}
+	nc.Folder = in.FolderID
+	return in.ShareID, nil
 }
 
 func itemsUpdateCmd() *cobra.Command {
@@ -717,6 +816,8 @@ func itemsUpdateCmd() *cobra.Command {
 			"NAME is " + secretFieldNames() + ",\n" +
 			"or any name at all, which makes a hidden custom field of it.\n\n" +
 			"--generate-password replaces the password with one it makes.\n\n" +
+			"--url replaces every URL the login has, and takes the rules `items create`\n" +
+			"lists: exact-host:, exact-url:, starts-with:, pattern: and never:.\n\n" +
 			"--attach puts a local file on the item, and needs a paid Pass plan.\n" +
 			"--detach takes one off by name or ID; it stays in the item's history.\n\n" +
 			"--simplelogin-note replaces the note an alias brought from SimpleLogin, and\n" +
@@ -770,7 +871,7 @@ func itemsUpdateCmd() *cobra.Command {
 			patch := passsvc.Patch{
 				Scalars: passsvc.Scalars{
 					Name: d.nc.Name, Username: d.nc.Username, Password: d.nc.Password,
-					Email: d.nc.Email, URL: d.nc.URL, TOTP: d.nc.TOTP, Note: d.nc.Note,
+					Email: d.nc.Email, TOTP: d.nc.TOTP, Note: d.nc.Note,
 					Holder: d.nc.Holder, Number: d.nc.Number, Expiry: d.nc.Expiry,
 					CVV: d.nc.CVV, PIN: d.nc.PIN, SSID: d.nc.SSID, WifiSecurity: wifi,
 					PrivateKey: d.nc.PrivateKey, PublicKey: d.nc.PublicKey,
@@ -779,6 +880,7 @@ func itemsUpdateCmd() *cobra.Command {
 				ExtraFields: d.nc.ExtraFields,
 				Attach:      reporting(c, files),
 				Detach:      detaching,
+				URLs:        d.nc.URLs,
 			}
 			return kit.Mutate(c, ui.ResultSpec{
 				Action: ui.Updated, Kind: "items", Count: 1, Name: d.nc.Name,
@@ -854,7 +956,7 @@ func bulkItemCmd(use, short string, action ui.Action, detail string,
 		Use:   use + " [REF...]",
 		Short: short,
 		RunE: kit.Run([]kit.Step{
-			kit.StepSelection(f.set, itemFilterHint, itemScope), kit.StepExpand,
+			f.check, kit.StepSelection(f.set, itemFilterHint, itemScope), kit.StepExpand,
 		}, func(c *kit.Invocation) error {
 			sel, err := selectItems(c, &f)
 			if err != nil {
@@ -880,10 +982,13 @@ func bulkItemCmd(use, short string, action ui.Action, detail string,
 // ── selection ──
 
 type filters struct {
-	vault    string
-	itemType *kit.Enum
-	age      kit.Range
-	all      bool
+	vault  string
+	folder string
+	// recursive takes the folders inside --folder in too.
+	recursive bool
+	itemType  *kit.Enum
+	age       kit.Range
+	all       bool
 	// page is the cap a bulk verb acts under, for the same reason Mail's is: a
 	// filter that selected more than was meant should stop short of the vault.
 	page kit.Page
@@ -896,7 +1001,54 @@ func (f *filters) registerNarrowing(c *cobra.Command) {
 	f.itemType.Register(c)
 	fl := c.Flags()
 	fl.StringVar(&f.vault, "vault", "", "Match only this vault, by name or ID")
+	fl.StringVar(&f.folder, "folder", "", "Match only this folder, by path or ID")
+	fl.BoolVar(&f.recursive, "recursive", false, "Match the folders inside --folder too")
+	kit.Completes(c, "folder", nil, "pass folders")
+	kit.Exclusive(c, "vault", "folder")
 	f.age.Register(fl, "items")
+}
+
+// check refuses --recursive with no folder to descend from, which the command
+// line alone settles.
+func (f *filters) check(*kit.Invocation) error {
+	if f.recursive && f.folder == "" {
+		return kit.Fail("--recursive takes in the folders inside --folder, and no folder was named.").
+			Hint("--folder Personal/Banking --recursive")
+	}
+	return nil
+}
+
+// place is where the filters look: the vault to read, and the folders in it
+// whose items count, which is nil for the whole vault.
+func (f *filters) place(c *kit.Invocation) (vault string, folders map[string]bool, err error) {
+	if f.folder == "" {
+		vault, err = kit.Expand(c.App, f.vault)
+		return vault, nil, err
+	}
+	folder, err := resolveFolder(c, f.folder)
+	if err != nil {
+		return "", nil, err
+	}
+	if !f.recursive {
+		return folder.ShareID, map[string]bool{folder.FolderID: true}, nil
+	}
+	below, err := c.App.Pass.Below(c.Ctx, folder)
+	return folder.ShareID, below, err
+}
+
+// inPlace keeps the items the folders hold, or all of them when no folder was
+// named.
+func inPlace(items []passsvc.Item, folders map[string]bool) []passsvc.Item {
+	if folders == nil {
+		return items
+	}
+	out := items[:0]
+	for _, it := range items {
+		if folders[it.FolderID] {
+			out = append(out, it)
+		}
+	}
+	return out
 }
 
 func (f *filters) register(c *cobra.Command) {
@@ -908,13 +1060,13 @@ func (f *filters) register(c *cobra.Command) {
 
 // narrowed reports whether the user asked for a subset of what is there.
 func (f *filters) narrowed() bool {
-	return f.vault != "" || f.itemType.Set() || f.age.Set()
+	return f.vault != "" || f.folder != "" || f.itemType.Set() || f.age.Set()
 }
 
 func (f *filters) set() bool { return f.narrowed() || f.all }
 
 const (
-	itemFilterHint = "--vault, --type or --older-than"
+	itemFilterHint = "--vault, --folder, --type or --older-than"
 	// itemScope is what --all covers when nothing narrows it.
 	itemScope = "a whole vault"
 )
@@ -923,7 +1075,7 @@ const (
 const defaultLimit = 150
 
 func selectItems(c *kit.Invocation, f *filters) (kit.Selection[passsvc.Item], error) {
-	if f.all && f.vault == "" && !f.itemType.Set() && !f.age.Set() {
+	if f.all && !f.narrowed() {
 		c.Warn("--all with no other filter covers every vault. Add --vault to narrow it.")
 	}
 	sel := kit.Selector[passsvc.Item]{
@@ -973,7 +1125,7 @@ func matchItems(ctx stdctx.Context, c *kit.Invocation, f *filters) ([]passsvc.It
 		}
 		newerThan = time.Now().Add(-d).Unix()
 	}
-	vaultRef, err := kit.Expand(c.App, f.vault)
+	vaultRef, folders, err := f.place(c)
 	if err != nil {
 		return nil, err
 	}
@@ -982,7 +1134,7 @@ func matchItems(ctx stdctx.Context, c *kit.Invocation, f *filters) ([]passsvc.It
 		return nil, err
 	}
 	out := make([]passsvc.Item, 0, len(items))
-	for _, it := range items {
+	for _, it := range inPlace(items, folders) {
 		if kind != "" && it.Type != kind {
 			continue
 		}

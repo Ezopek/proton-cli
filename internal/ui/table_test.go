@@ -146,6 +146,31 @@ func TestTableRightAlign(t *testing.T) {
 	check(t, "table_right_align", out, errb)
 }
 
+// A column only some rows have something for is drawn, and left out when none
+// does.
+func TestTableLeavesOutASparseColumnNobodyFills(t *testing.T) {
+	type row struct{ name, folder string }
+	cols := []Column[row]{
+		{Header: "NAME", Flex: true, Cell: func(r row) string { return r.name }},
+		{Header: "FOLDER", Sparse: true, Cell: func(r row) string { return r.folder }},
+	}
+	spec := TableSpec[row]{Noun: "items", Total: Unknown, Page: Unpaged, Columns: cols}
+
+	u, out, errb := fixture(t, Options{})
+	if err := Table(u, spec, []row{{"GitHub", ""}, {"Bank Austria", "Personal/Banking"}}); err != nil {
+		t.Fatal(err)
+	}
+	check(t, "table_sparse", out, errb)
+
+	u, out, _ = fixture(t, Options{})
+	if err := Table(u, spec, []row{{"GitHub", ""}}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "FOLDER") {
+		t.Errorf("a column no row fills was drawn:\n%s", out)
+	}
+}
+
 // A collection that found nothing still answers with an array, so that reading
 // the rows out of any envelope works without a special case for "none".
 func TestTableEnvelopeIsAnArrayWhenEmpty(t *testing.T) {

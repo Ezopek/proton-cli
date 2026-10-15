@@ -31,6 +31,7 @@ DELETE /pass/v1/invite/{id}
 DELETE /pass/v1/personal-access-token/{id}/access/{id}
 DELETE /pass/v1/public_link/{id}
 DELETE /pass/v1/share/{id}/alias/{id}/contact/{n}
+DELETE /pass/v1/share/{id}/folder
 DELETE /pass/v1/share/{id}/invite/new_user/{id}
 DELETE /pass/v1/share/{id}/invite/{id}
 DELETE /pass/v1/share/{id}/item
@@ -146,6 +147,7 @@ GET /pass/v1/share/{id}/alias/options
 GET /pass/v1/share/{id}/alias/{id}
 GET /pass/v1/share/{id}/alias/{id}/breaches
 GET /pass/v1/share/{id}/alias/{id}/contact
+GET /pass/v1/share/{id}/folder
 GET /pass/v1/share/{id}/invite
 GET /pass/v1/share/{id}/item
 GET /pass/v1/share/{id}/item/{id}
@@ -238,6 +240,7 @@ POST /pass/v1/personal-access-token/{id}/access
 POST /pass/v1/share/{id}/alias/custom
 POST /pass/v1/share/{id}/alias/{id}/contact
 POST /pass/v1/share/{id}/alias/{id}/mailbox
+POST /pass/v1/share/{id}/folder
 POST /pass/v1/share/{id}/invite
 POST /pass/v1/share/{id}/invite/new_user
 POST /pass/v1/share/{id}/item
@@ -341,6 +344,8 @@ PUT /pass/v1/share/{id}/alias/{id}/contact/{n}/blocked
 PUT /pass/v1/share/{id}/alias/{id}/name
 PUT /pass/v1/share/{id}/alias/{id}/note
 PUT /pass/v1/share/{id}/alias/{id}/status
+PUT /pass/v1/share/{id}/folder/{id}
+PUT /pass/v1/share/{id}/item/folder
 PUT /pass/v1/share/{id}/item/share
 PUT /pass/v1/share/{id}/item/{id}
 PUT /pass/v1/share/{id}/item/{id}/file/{id}/metadata

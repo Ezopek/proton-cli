@@ -190,7 +190,7 @@ func draftsSendCmd() *cobra.Command {
 			return kit.Mutate(c, ui.ResultSpec{
 				Action: action, Kind: "messages", Count: 1,
 				Name: draft.Content.Subject, Detail: detail,
-				IDs: []string{id}, EmitID: true,
+				IDs: []string{id}, EmitIDs: true,
 			}, func() error {
 				if err := withContactSettings(c, &del, draft.Content); err != nil {
 					return err

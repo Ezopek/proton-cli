@@ -20,6 +20,8 @@ A refusal that comes from Proton rather than from proton-cli belongs to [Trouble
 
 **A time on somebody else's booking page is booked in a browser.** Open the link they sent you. Your own booking pages are made and changed with `proton calendar booking-pages`.
 
+**A regular expression rule on a login's URL is set in a Pass app.** `proton pass items get` shows one, and `--url` takes every other rule ([Pass](../pass/README.md#choose-where-a-login-fills-in)).
+
 **A Drive filter over a large tree is slow.** Narrow it with `--scope`, or index the tree once with `proton index create drive` ([Local index](../index/README.md)).
 
 ## Out of scope

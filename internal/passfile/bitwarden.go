@@ -17,7 +17,8 @@ import (
 //
 // A personal export files its items in folders; an organisation's files them in
 // collections and leaves every folder empty, so which of the two the file
-// carries decides where an item lands.
+// carries decides which folder an item lands in. Either name is a path, with /
+// between the folders.
 
 // bitwardenAndroidApp is how Bitwarden writes an address that is not a website
 // at all but an app on a phone.
@@ -193,7 +194,7 @@ func readBitwardenJSON(in source, raw []byte, attachments map[string][]File) (*D
 	}
 
 	doc := &Document{}
-	vaults := newGrouped()
+	var entries []Entry
 	for _, record := range file.Items {
 		group := record.FolderID
 		if byCollection {
@@ -208,10 +209,22 @@ func readBitwardenJSON(in source, raw []byte, attachments map[string][]File) (*D
 			continue
 		}
 		entry.Files = attachments[record.ID]
-		vaults.add(names[group], entry)
+		entry.Folder = folderPath(names[group])
+		entries = append(entries, entry)
 	}
-	vaults.into(doc)
+	doc.vault("", entries)
 	return doc, nil
+}
+
+// folderPath is a Bitwarden folder's name as the folders it names, from the top.
+func folderPath(name string) []string {
+	var out []string
+	for _, part := range strings.Split(name, "/") {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
 
 func bitwardenEntry(record bitwardenItem) (Entry, bool) {

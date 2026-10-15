@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 Adding a version section here is what publishes a release, so this file is the one place a version is decided: see [Releases](CONTRIBUTING.md#releases). Versions that shipped before this file existed are on the [releases page](https://github.com/roman-16/proton-cli/releases).
 
+## [5.1.0] - 2026-10-15
+
+### Highlights
+
+- **Pass folders** - `pass folders` makes, renames and deletes folders inside a vault. `items create --folder` and `items move --into` file items in them, and `items list --folder` shows what one holds.
+- **Choose where a login fills in** - `--url` on `pass items create` and `update` takes a rule in front of an address, such as `never:` or `exact-url:`, and `items get` shows each one.
+
+### Added
+
+- `pass folders` lists, creates, renames and deletes folders inside a vault, each named by its path from the vault: `Personal/Banking`. Making, renaming and filling folders needs a paid Pass plan.
+- `pass items create --folder` puts a new item in a folder, and `pass items move --into` takes a folder as well as a vault.
+- `pass items list`, `trash` and `delete` take `--folder` for what one folder holds, and `--recursive` for the folders inside it too.
+- `pass items list` shows a FOLDER column and `items get` a Folder line for an item in a folder. JSON carries `folder` and `folder_id`.
+- `pass items move` moves several items at once, named or matched by the filters `trash` takes, and prints each one's ID on its own line.
+- `pass items create` and `update` take `--url` more than once, each optionally after a rule: `exact-host:`, `exact-url:`, `starts-with:`, `pattern:` or `never:`.
+
+### Changed
+
+- `pass items get` and its JSON show each URL with its rule in front, the way `--url` takes it, so a URL Pass never fills on reads `never:https://…`.
+- `pass export` writes each vault's folders and the folder each item is in.
+- `pass import --manager bitwarden` files Bitwarden's folders and collections as folders in the vault the items land in. On a plan without folders, each still becomes a vault.
+
+### Fixed
+
+- Pass items in a folder were left out of every listing as items that could not be decrypted, and could not be read, edited, moved, shared or exported.
+- `pass import` of a Proton Pass CSV dropped each URL's rule, so a URL meant never to fill filled everywhere.
+
 ## [5.0.1] - 2026-09-28
 
 ### Changed

@@ -142,8 +142,8 @@ func missing2FA(logins []FullItem) []Item {
 		if hasSecondFactor(it) {
 			continue
 		}
-		for _, u := range it.URLs {
-			if twofa.Eligible(u) {
+		for _, u := range it.rules {
+			if u.Address() && twofa.Eligible(u.Value) {
 				out = append(out, flagged(it, RiskMissing2FA, 0))
 				break
 			}

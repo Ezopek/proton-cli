@@ -23,7 +23,7 @@ func New() *cobra.Command {
 		Use:   "pass",
 		Short: "Vaults, logins and secrets",
 	}
-	c.AddCommand(itemsCmd(), vaultsCmd(), aliasesCmd(), trashCmd(), generateCmd(), breachesCmd(), linksCmd(),
+	c.AddCommand(itemsCmd(), vaultsCmd(), foldersCmd(), aliasesCmd(), trashCmd(), generateCmd(), breachesCmd(), linksCmd(),
 		invitationsCmd(), sharedCmd(), sharingCmd(), settingsCmd(),
 		exportCmd(), importCmd())
 	return c

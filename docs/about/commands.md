@@ -372,6 +372,10 @@ Where a command shows `REF`, pass a full ID, the eight-character short ID a list
 | [`proton pass breaches resend`](../pass/breaches.md#resend) | Send the confirmation code again |
 | [`proton pass breaches resolve`](../pass/breaches.md#resolve) | Mark an address's current breaches as resolved |
 | [`proton pass breaches verify`](../pass/breaches.md#verify) | Confirm an address with the code Proton emailed it |
+| [`proton pass folders create`](../pass/folders.md#create) | Create a folder |
+| [`proton pass folders delete`](../pass/folders.md#delete) | Delete folders, and everything inside them |
+| [`proton pass folders list`](../pass/folders.md#list) | List the folders in your vaults |
+| [`proton pass folders update`](../pass/folders.md#update) | Rename a folder |
 | [`proton pass invitations accept`](../pass/invitations.md#accept) | Take what somebody offered you |
 | [`proton pass invitations decline`](../pass/invitations.md#decline) | Turn down what somebody offered you |
 | [`proton pass invitations list`](../pass/invitations.md#list) | List what other people have offered you |
@@ -385,7 +389,7 @@ Where a command shows `REF`, pass a full ID, the eight-character short ID a list
 | [`proton pass items get`](../pass/items.md#get) | Show one item, decrypted |
 | [`proton pass items include`](../pass/items.md#include) | Bring logins back into Pass Monitor's checks |
 | [`proton pass items list`](../pass/items.md#list) | List items across your vaults |
-| [`proton pass items move`](../pass/items.md#move) | Put an item in another vault |
+| [`proton pass items move`](../pass/items.md#move) | Put items in another vault or folder |
 | [`proton pass items passkeys list`](../pass/items.md#passkeys-list) | List the passkeys stored against a login |
 | [`proton pass items passkeys remove`](../pass/items.md#passkeys-remove) | Take a passkey off a login |
 | [`proton pass items pin`](../pass/items.md#pin) | Keep items at the top of the list |

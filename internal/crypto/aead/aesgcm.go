@@ -31,6 +31,11 @@ const (
 	// TagActionPayload seals what an access token recorded about one action it
 	// took, under that token's key.
 	TagActionPayload = "proton.pass.payload"
+	// TagFolderKey seals a Pass folder's key under the key of what holds it: the
+	// vault for a folder at the top, the parent folder for one inside another.
+	TagFolderKey = "key.folder.pass.proton"
+	// TagFolderContent seals a folder's name under the folder's own key.
+	TagFolderContent = "content.folder.pass.proton"
 )
 
 // TagFileChunk is the tag over one chunk of a version-2 file.

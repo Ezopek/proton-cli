@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package proton_pass_folder_v1;
+
+option go_package = "github.com/roman-16/proton-cli/internal/proto";
+
+message Folder {
+	string name = 1;
+}

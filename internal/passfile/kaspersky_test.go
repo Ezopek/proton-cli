@@ -74,7 +74,7 @@ func TestAKasperskyLoginIsRead(t *testing.T) {
 	if content.GetItemEmail() != "jane@example.test" || content.GetPassword() != "proton123" {
 		t.Errorf("the login came back as %v", content)
 	}
-	if got := LoginURLs(content); len(got) != 1 || got[0] != "https://account.proton.me" {
+	if got := LoginURLs(content); len(got) != 1 || got[0].Value != "https://account.proton.me" {
 		t.Errorf("the URLs came back as %v", got)
 	}
 	if got := login.Item.GetMetadata().GetNote(); got != "a note" {

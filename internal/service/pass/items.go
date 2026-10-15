@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -38,11 +40,17 @@ type Item struct {
 	ModifyTime int64  `json:"modify_time,omitempty"`
 	// LastUseTime is when a Pass app last filled the item in somewhere, and zero
 	// for one never used.
-	LastUseTime int64    `json:"last_use_time,omitempty"`
-	Name        string   `json:"name,omitempty"`
-	Username    string   `json:"username,omitempty"`
-	Email       string   `json:"email,omitempty"`
-	URLs        []string `json:"urls"`
+	LastUseTime int64  `json:"last_use_time,omitempty"`
+	Name        string `json:"name,omitempty"`
+	Username    string `json:"username,omitempty"`
+	Email       string `json:"email,omitempty"`
+	// URLs are a login's addresses, each written the way --url takes it: with
+	// the rule it fills under in front, unless that is the default.
+	URLs []string `json:"urls"`
+	// FolderID is the folder the item is in, and Folder that folder's path from
+	// its vault. Both are empty for an item at the top of its vault.
+	FolderID string `json:"folder_id,omitempty"`
+	Folder   string `json:"folder,omitempty"`
 
 	// Shares is how many people hold this item on its own, which is what makes it
 	// one of the things you have shared.
@@ -70,6 +78,9 @@ type Item struct {
 	// breached is whether an alias's address has turned up in a leak. Like
 	// Excluded it is an item flag, so it is known without a request of its own.
 	breached bool
+	// rules are the login's addresses as Pass stores them, which is what says
+	// whether one names a site.
+	rules []passfile.URLRule
 }
 
 // FullItem is one item decrypted whole, secrets included.
@@ -354,60 +365,143 @@ func (s *Service) SharedByMe(ctx context.Context) ([]Item, error) {
 	return out, nil
 }
 
-// ItemMove puts an item in another vault.
+// moveBatch is how many items go in one request, which is what the app sends.
+const moveBatch = 10
+
+// MoveRefusal is one item that did not move, and why.
+type MoveRefusal struct {
+	Name   string
+	Reason string
+}
+
+// String names the item and what became of it.
+func (r MoveRefusal) String() string {
+	return fmt.Sprintf("%q did not move: %s.", r.Name, r.Reason)
+}
+
+// ItemsMove puts items in a vault, or in a folder inside one, and answers with
+// the reference each moved item has afterwards.
 //
-// The item is sealed under the key of the share it lives in, so moving it means
-// handing Proton the same content sealed under the destination's key. It keeps
-// its history and gets a new item ID, because in Pass an item is only unique
-// with its share.
-func (s *Service) ItemMove(ctx context.Context, shareID, itemID, toShareID string) (string, error) {
-	if shareID == toShareID {
-		return itemID, nil
-	}
-	keys, err := s.itemKeys(ctx, shareID, itemID)
+// Each item's keys are sealed again under the key of where it goes. An item that
+// stays in its vault keeps its ID; one that goes to another vault gets a new one,
+// because in Pass an item is only unique with its vault. A batch Proton refuses
+// is named, and the rest still move.
+func (s *Service) ItemsMove(ctx context.Context, items []Item, to Place) ([]string, []MoveRefusal, error) {
+	wrap, _, err := s.keyAt(ctx, to.ShareID, to.FolderID)
 	if err != nil {
-		return "", err
+		return nil, nil, err
 	}
-	destination, err := s.decryptShareKeys(ctx, toShareID)
+	shares, err := s.shares(ctx)
 	if err != nil {
-		return "", err
+		return nil, nil, err
 	}
-	destinationKey, rotation := destination.latest()
-
-	rotations := make([]int, 0, len(keys))
-	for r := range keys {
-		rotations = append(rotations, r)
+	ownVault := map[string]bool{}
+	for _, sh := range shares {
+		ownVault[sh.ShareID] = sh.Vault()
 	}
-	slices.Sort(rotations)
 
-	sealed := make([]map[string]any, 0, len(rotations))
-	for _, r := range rotations {
-		enc, err := aead.Encrypt(destinationKey, keys[r], []byte(aead.TagItemKey))
-		if err != nil {
-			return "", err
+	var bySource []string
+	grouped := map[string][]Item{}
+	var refused []MoveRefusal
+	for _, it := range items {
+		if !ownVault[it.ShareID] {
+			refused = append(refused, MoveRefusal{Name: it.Name,
+				Reason: "it was shared with you on its own, and only its owner can move it"})
+			continue
 		}
-		sealed = append(sealed, map[string]any{
-			"Key":         base64.StdEncoding.EncodeToString(enc),
-			"KeyRotation": rotation,
-		})
+		s.place(it.ShareID, it.ItemID, it.FolderID)
+		if _, seen := grouped[it.ShareID]; !seen {
+			bySource = append(bySource, it.ShareID)
+		}
+		grouped[it.ShareID] = append(grouped[it.ShareID], it)
 	}
 
-	var r struct {
-		Items []struct{ ItemID string }
+	var moved []string
+	for _, from := range bySource {
+		for batch := range slices.Chunk(grouped[from], moveBatch) {
+			ids, err := s.moveBatch(ctx, from, batch, to, wrap)
+			if err != nil {
+				// Proton refuses a batch whole, so every item in it stays where it
+				// was and the run carries on with the next one. Recorded and not
+				// counted: each item is named in the refusals the result carries.
+				slog.DebugContext(ctx, "pass: a batch of items would not move",
+					"count", len(batch), "error", err)
+				for _, it := range batch {
+					refused = append(refused, MoveRefusal{Name: it.Name, Reason: err.Error()})
+				}
+				continue
+			}
+			for _, id := range ids {
+				s.place(to.ShareID, id, to.FolderID)
+				moved = append(moved, ref.Join(to.ShareID, id))
+			}
+		}
 	}
-	if err := s.C.Decode(ctx, proton.Request{
-		Method: "PUT", Path: "/pass/v1/share/" + shareID + "/item/share",
-		Body: map[string]any{
-			"ShareID": toShareID,
-			"Items":   []map[string]any{{"ItemID": itemID, "ItemKeys": sealed}},
-		},
-	}, &r); err != nil {
-		return "", err
+	return moved, refused, nil
+}
+
+// moveBatch moves one batch of items out of one vault.
+//
+// Every key the item has had is sealed under the destination's, each keeping
+// the rotation it was made at, so a revision written before the last rotation
+// still opens where it lands.
+func (s *Service) moveBatch(ctx context.Context, from string, batch []Item, to Place, wrap []byte) ([]string, error) {
+	entries := make([]map[string]any, 0, len(batch))
+	for _, it := range batch {
+		keys, err := s.itemKeys(ctx, from, it.ItemID)
+		if err != nil {
+			return nil, err
+		}
+		rotations := slices.Sorted(maps.Keys(keys))
+		sealed := make([]map[string]any, 0, len(rotations))
+		for _, r := range rotations {
+			enc, err := aead.Encrypt(wrap, keys[r], []byte(aead.TagItemKey))
+			if err != nil {
+				return nil, err
+			}
+			sealed = append(sealed, map[string]any{
+				"Key":         base64.StdEncoding.EncodeToString(enc),
+				"KeyRotation": r,
+			})
+		}
+		entry := map[string]any{"ItemID": it.ItemID, "ItemKeys": sealed}
+		if from != to.ShareID {
+			entry["DestinationFolderID"] = folderOrNull(to.FolderID)
+		}
+		entries = append(entries, entry)
 	}
-	if len(r.Items) == 0 {
-		return "", fmt.Errorf("the move was accepted but named no item")
+
+	var r struct{ Items []struct{ ItemID string } }
+	req := proton.Request{
+		Method: "PUT", Path: "/pass/v1/share/" + from + "/item/folder",
+		Body: map[string]any{"FolderID": folderOrNull(to.FolderID), "Items": entries},
 	}
-	return r.Items[0].ItemID, nil
+	if from != to.ShareID {
+		req = proton.Request{
+			Method: "PUT", Path: "/pass/v1/share/" + from + "/item/share",
+			Body: map[string]any{"ShareID": to.ShareID, "Items": entries},
+		}
+	}
+	if err := s.C.Decode(ctx, req, &r); err != nil {
+		return nil, err
+	}
+	if len(r.Items) != len(batch) {
+		return nil, fmt.Errorf("%d of the %d items sent came back", len(r.Items), len(batch))
+	}
+	out := make([]string, 0, len(r.Items))
+	for _, it := range r.Items {
+		out = append(out, it.ItemID)
+	}
+	return out, nil
+}
+
+// folderOrNull is a folder ID as a request names it: null for the top of a
+// vault.
+func folderOrNull(folderID string) any {
+	if folderID == "" {
+		return nil
+	}
+	return folderID
 }
 
 func (s *Service) ItemGet(ctx context.Context, shareID, itemID string) (*FullItem, error) {
@@ -423,6 +517,7 @@ func (s *Service) ItemGet(ctx context.Context, shareID, itemID string) (*FullIte
 			Flags            int
 			Content, ItemKey string
 			KeyRotation      int
+			FolderID         string
 			CreateTime       int64
 			ModifyTime       int64
 			LastUseTime      int64
@@ -432,33 +527,18 @@ func (s *Service) ItemGet(ctx context.Context, shareID, itemID string) (*FullIte
 	if err := s.C.Decode(ctx, proton.Request{Method: "GET", Path: fmt.Sprintf("/pass/v1/share/%s/item/%s", shareID, itemID)}, &r); err != nil {
 		return nil, err
 	}
-	shareKey, ok := sk.keys[r.Item.KeyRotation]
-	if !ok {
-		return nil, fmt.Errorf("no share key for rotation %d", r.Item.KeyRotation)
-	}
-	ikBytes, err := base64.StdEncoding.DecodeString(r.Item.ItemKey)
+	s.place(shareID, itemID, r.Item.FolderID)
+	wrap, folder, err := s.wrapping(ctx, shareID, sk, r.Item.FolderID, r.Item.KeyRotation)
 	if err != nil {
 		return nil, err
 	}
-	itemKey, err := aead.Decrypt(shareKey, ikBytes, []byte(aead.TagItemKey))
+	out, err := decodeItem(wrap, r.Item.Content, r.Item.ItemKey)
 	if err != nil {
 		return nil, err
 	}
-	cBytes, err := base64.StdEncoding.DecodeString(r.Item.Content)
-	if err != nil {
-		return nil, err
-	}
-	plain, err := aead.Decrypt(itemKey, cBytes, []byte(aead.TagItemContent))
-	if err != nil {
-		return nil, err
-	}
-	var it pb.Item
-	if err := proto.Unmarshal(plain, &it); err != nil {
-		return nil, err
-	}
-	out := itemFromProto(&it)
 	out.ShareID = shareID
 	out.ItemID = r.Item.ItemID
+	out.inFolder(folder)
 	out.Revision = r.Item.Revision
 	out.State = r.Item.State
 	out.CreateTime = r.Item.CreateTime
@@ -546,12 +626,16 @@ func (s *Service) ResolveItem(ctx context.Context, args []string) (string, strin
 }
 
 type NewItem struct {
-	Type                                       string
-	Name, Username, Password, Email, URL, Note string
-	TOTP                                       string
-	Holder, Number, Expiry, CVV, PIN           string
-	SSID, WifiSecurity                         string
-	PrivateKey, PublicKey                      string
+	Type                                  string
+	Name, Username, Password, Email, Note string
+	// URLs are a login's addresses, each with the rule it fills under.
+	URLs []passfile.URLRule
+	// Folder is the folder to put the item in, and "" for the top of the vault.
+	Folder                           string
+	TOTP                             string
+	Holder, Number, Expiry, CVV, PIN string
+	SSID, WifiSecurity               string
+	PrivateKey, PublicKey            string
 	// identity
 	FullName, FirstName, LastName, PhoneNumber string
 	Organization, JobTitle                     string
@@ -597,23 +681,18 @@ func wifiSecurity(s string) pb.WifiSecurity {
 }
 
 func (s *Service) ItemCreate(ctx context.Context, shareID string, nc NewItem) (string, error) {
-	sk, err := s.decryptShareKeys(ctx, shareID)
+	wrap, rotation, err := s.keyAt(ctx, shareID, nc.Folder)
 	if err != nil {
 		return "", err
 	}
-	shareKey, rotation := sk.latest()
 
 	item := &pb.Item{Metadata: &pb.Metadata{Name: nc.Name, Note: nc.Note}, Content: &pb.Content{}}
 	switch nc.Type {
 	case "login":
-		urls := []string{}
-		if nc.URL != "" {
-			urls = append(urls, nc.URL)
-		}
 		login := &pb.ItemLogin{
 			ItemUsername: nc.Username, ItemEmail: nc.Email, Password: nc.Password, TotpUri: nc.TOTP,
 		}
-		passfile.SetLoginURLs(login, urls)
+		passfile.SetLoginURLs(login, nc.URLs)
 		item.Content.Content = &pb.Content_Login{Login: login}
 	case "note":
 		item.Content.Content = &pb.Content_Note{Note: &pb.ItemNote{}}
@@ -658,10 +737,11 @@ func (s *Service) ItemCreate(ctx context.Context, shareID string, nc NewItem) (s
 		pending = append(pending, file)
 	}
 
-	itemID, err := s.putItem(ctx, shareID, shareKey, rotation, item)
+	itemID, err := s.putItem(ctx, shareID, wrap, rotation, nc.Folder, item)
 	if err != nil {
 		return "", err
 	}
+	s.place(shareID, itemID, nc.Folder)
 	if _, err := s.linkFiles(ctx, shareID, itemID, 1, pending, nil); err != nil {
 		return itemID, err
 	}
@@ -680,36 +760,16 @@ const (
 // an export says the same thing about the items it carries.
 const contentFormatVersion = 7
 
-// putItem seals one item under a fresh key of its own and stores it.
-//
-// Creating an item and reading one out of a backup differ only in where the
-// protobuf came from, so they seal and send it the same way.
-func (s *Service) putItem(ctx context.Context, shareID string, shareKey []byte, rotation int, item *pb.Item) (string, error) {
-	itemKey, err := aead.NewKey()
-	if err != nil {
-		return "", err
-	}
-	pbBytes, err := proto.Marshal(item)
-	if err != nil {
-		return "", err
-	}
-	ct, err := aead.Encrypt(itemKey, pbBytes, []byte(aead.TagItemContent))
-	if err != nil {
-		return "", err
-	}
-	ek, err := aead.Encrypt(shareKey, itemKey, []byte(aead.TagItemKey))
+// putItem seals one item under a fresh key of its own and stores it, at the top
+// of the vault or in the folder named.
+func (s *Service) putItem(ctx context.Context, shareID string, wrap []byte, rotation int, folderID string, item *pb.Item) (string, error) {
+	sealed, err := sealItem(wrap, rotation, folderID, item)
 	if err != nil {
 		return "", err
 	}
 	var r struct{ Item struct{ ItemID string } }
 	if err := s.C.Decode(ctx, proton.Request{
-		Method: "POST", Path: "/pass/v1/share/" + shareID + "/item",
-		Body: map[string]any{
-			"Content":              base64.StdEncoding.EncodeToString(ct),
-			"ContentFormatVersion": contentFormatVersion,
-			"ItemKey":              base64.StdEncoding.EncodeToString(ek),
-			"KeyRotation":          rotation,
-		},
+		Method: "POST", Path: "/pass/v1/share/" + shareID + "/item", Body: sealed,
 	}, &r); err != nil {
 		return "", err
 	}
@@ -730,16 +790,19 @@ type Patch struct {
 	Detach []string
 	// RemovePasskeys are the passkeys to take off a login, by key ID.
 	RemovePasskeys []string
+	// URLs replace every address a login carries, rules and all. Nil leaves
+	// them as they are.
+	URLs []passfile.URLRule
 }
 
 // Scalars are the single-valued fields a patch can carry. They are their own
 // struct so that Empty can compare them, which a struct holding a map cannot do.
 type Scalars struct {
-	Name, Username, Password, Email, URL, Note string
-	TOTP                                       string
-	Holder, Number, Expiry, CVV, PIN           string
-	SSID, WifiSecurity                         string
-	PrivateKey, PublicKey                      string
+	Name, Username, Password, Email, Note string
+	TOTP                                  string
+	Holder, Number, Expiry, CVV, PIN      string
+	SSID, WifiSecurity                    string
+	PrivateKey, PublicKey                 string
 }
 
 // Empty reports whether the patch changes nothing about the item, which is what
@@ -752,7 +815,7 @@ func (p Patch) Empty() bool {
 // is what an edit that adds or removes a file and nothing else is.
 func (p Patch) onlyFiles() bool {
 	return p.Scalars == Scalars{} && len(p.Identity) == 0 && p.ExtraFields.Empty() &&
-		len(p.RemovePasskeys) == 0
+		len(p.RemovePasskeys) == 0 && p.URLs == nil
 }
 
 func (s *Service) ItemEdit(ctx context.Context, shareID, itemID string, patch Patch) error {
@@ -771,35 +834,22 @@ func (s *Service) ItemEdit(ctx context.Context, shareID, itemID string, patch Pa
 			Revision         int
 			Content, ItemKey string
 			KeyRotation      int
+			FolderID         string
 		}
 	}
 	if err := s.C.Decode(ctx, proton.Request{Method: "GET", Path: fmt.Sprintf("/pass/v1/share/%s/item/%s", shareID, itemID)}, &r); err != nil {
 		return err
 	}
-	shareKey, ok := sk.keys[r.Item.KeyRotation]
-	if !ok {
-		return fmt.Errorf("no share key for rotation %d", r.Item.KeyRotation)
-	}
-	ikBytes, err := base64.StdEncoding.DecodeString(r.Item.ItemKey)
-	if err != nil {
-		return fmt.Errorf("decode item key: %w", err)
-	}
-	itemKey, err := aead.Decrypt(shareKey, ikBytes, []byte(aead.TagItemKey))
+	s.place(shareID, itemID, r.Item.FolderID)
+	wrap, _, err := s.wrapping(ctx, shareID, sk, r.Item.FolderID, r.Item.KeyRotation)
 	if err != nil {
 		return err
 	}
-	cBytes, err := base64.StdEncoding.DecodeString(r.Item.Content)
-	if err != nil {
-		return fmt.Errorf("decode item content: %w", err)
-	}
-	plain, err := aead.Decrypt(itemKey, cBytes, []byte(aead.TagItemContent))
+	read, err := decodeItem(wrap, r.Item.Content, r.Item.ItemKey)
 	if err != nil {
 		return err
 	}
-	var it pb.Item
-	if err := proto.Unmarshal(plain, &it); err != nil {
-		return err
-	}
+	it := read.raw
 	if it.Metadata == nil {
 		it.Metadata = &pb.Metadata{}
 	}
@@ -809,7 +859,7 @@ func (s *Service) ItemEdit(ctx context.Context, shareID, itemID string, patch Pa
 	if patch.Note != "" {
 		it.Metadata.Note = patch.Note
 	}
-	if err := patchExtraFields(&it, patch); err != nil {
+	if err := patchExtraFields(it, patch); err != nil {
 		return err
 	}
 	if it.Content != nil {
@@ -825,8 +875,8 @@ func (s *Service) ItemEdit(ctx context.Context, shareID, itemID string, patch Pa
 			if patch.Email != "" {
 				l.ItemEmail = patch.Email
 			}
-			if patch.URL != "" {
-				passfile.SetLoginURLs(l, []string{patch.URL})
+			if patch.URLs != nil {
+				passfile.SetLoginURLs(l, patch.URLs)
 			}
 			if patch.TOTP != "" {
 				l.TotpUri = patch.TOTP
@@ -874,7 +924,7 @@ func (s *Service) ItemEdit(ctx context.Context, shareID, itemID string, patch Pa
 			patchIdentity(content.Identity, patch.Identity)
 		}
 	}
-	pbBytes, err := proto.Marshal(&it)
+	pbBytes, err := proto.Marshal(it)
 	if err != nil {
 		return err
 	}
@@ -909,11 +959,11 @@ func (s *Service) ItemEdit(ctx context.Context, shareID, itemID string, patch Pa
 // editFiles is the edit that only adds or removes files, which leaves the item's
 // own fields untouched and so writes no content.
 func (s *Service) editFiles(ctx context.Context, shareID, itemID string, patch Patch) error {
-	revision, err := s.itemRevision(ctx, shareID, itemID)
+	head, err := s.itemHead(ctx, shareID, itemID)
 	if err != nil {
 		return err
 	}
-	return s.applyFiles(ctx, shareID, itemID, revision, patch)
+	return s.applyFiles(ctx, shareID, itemID, head.Revision, patch)
 }
 
 // applyFiles puts the patch's files on the item and takes its removals off.
@@ -937,6 +987,10 @@ func (s *Service) applyFiles(ctx context.Context, shareID, itemID string, revisi
 // write re-encrypts under the key that is current rather than the one the revision
 // happened to be stored with.
 func (s *Service) latestItemKey(ctx context.Context, sk *shareKeys, shareID, itemID string) ([]byte, int, error) {
+	folderID, err := s.itemFolder(ctx, shareID, itemID)
+	if err != nil {
+		return nil, 0, err
+	}
 	var r struct {
 		Key struct {
 			Key         string
@@ -948,15 +1002,15 @@ func (s *Service) latestItemKey(ctx context.Context, sk *shareKeys, shareID, ite
 	}, &r); err != nil {
 		return nil, 0, fmt.Errorf("get the item's latest key: %w", err)
 	}
-	shareKey, ok := sk.keys[r.Key.KeyRotation]
-	if !ok {
-		return nil, 0, fmt.Errorf("no share key for rotation %d", r.Key.KeyRotation)
+	wrap, _, err := s.wrapping(ctx, shareID, sk, folderID, r.Key.KeyRotation)
+	if err != nil {
+		return nil, 0, err
 	}
 	encoded, err := base64.StdEncoding.DecodeString(r.Key.Key)
 	if err != nil {
 		return nil, 0, fmt.Errorf("decode the item's latest key: %w", err)
 	}
-	itemKey, err := aead.Decrypt(shareKey, encoded, []byte(aead.TagItemKey))
+	itemKey, err := aead.Decrypt(wrap, encoded, []byte(aead.TagItemKey))
 	if err != nil {
 		return nil, 0, fmt.Errorf("open the item's latest key: %w", err)
 	}
@@ -964,59 +1018,63 @@ func (s *Service) latestItemKey(ctx context.Context, sk *shareKeys, shareID, ite
 }
 
 func (s *Service) ItemTrash(ctx context.Context, shareID, itemID string) error {
-	rev, err := s.itemRevision(ctx, shareID, itemID)
+	head, err := s.itemHead(ctx, shareID, itemID)
 	if err != nil {
 		return err
 	}
 	return s.C.Decode(ctx, proton.Request{
 		Method: "POST", Path: "/pass/v1/share/" + shareID + "/item/trash",
-		Body: map[string]any{"Items": []map[string]any{{"ItemID": itemID, "Revision": rev}}},
+		Body: map[string]any{"Items": []map[string]any{{"ItemID": itemID, "Revision": head.Revision}}},
 	}, nil)
 }
 
 func (s *Service) ItemRestore(ctx context.Context, shareID, itemID string) error {
-	rev, err := s.itemRevision(ctx, shareID, itemID)
+	head, err := s.itemHead(ctx, shareID, itemID)
 	if err != nil {
 		return err
 	}
 	return s.C.Decode(ctx, proton.Request{
 		Method: "POST", Path: "/pass/v1/share/" + shareID + "/item/untrash",
-		Body: map[string]any{"Items": []map[string]any{{"ItemID": itemID, "Revision": rev}}},
+		Body: map[string]any{"Items": []map[string]any{{"ItemID": itemID, "Revision": head.Revision}}},
 	}, nil)
 }
 
 // ItemDelete must trash an active item first; the API rejects deleting one
 // that isn't already in the trash.
 func (s *Service) ItemDelete(ctx context.Context, shareID, itemID string) error {
-	var r struct {
-		Item struct {
-			Revision int
-			State    int
-		}
-	}
-	if err := s.C.Decode(ctx, proton.Request{Method: "GET", Path: fmt.Sprintf("/pass/v1/share/%s/item/%s", shareID, itemID)}, &r); err != nil {
+	head, err := s.itemHead(ctx, shareID, itemID)
+	if err != nil {
 		return err
 	}
-	if r.Item.State != trashedState {
+	if head.State != trashedState {
 		if err := s.ItemTrash(ctx, shareID, itemID); err != nil {
 			return err
 		}
-		if err := s.C.Decode(ctx, proton.Request{Method: "GET", Path: fmt.Sprintf("/pass/v1/share/%s/item/%s", shareID, itemID)}, &r); err != nil {
+		if head, err = s.itemHead(ctx, shareID, itemID); err != nil {
 			return err
 		}
 	}
 	return s.C.Decode(ctx, proton.Request{
 		Method: "DELETE", Path: "/pass/v1/share/" + shareID + "/item",
-		Body: map[string]any{"Items": []map[string]any{{"ItemID": itemID, "Revision": r.Item.Revision}}},
+		Body: map[string]any{"Items": []map[string]any{{"ItemID": itemID, "Revision": head.Revision}}},
 	}, nil)
 }
 
-func (s *Service) itemRevision(ctx context.Context, shareID, itemID string) (int, error) {
-	var r struct{ Item struct{ Revision int } }
+// itemHead is what Proton says about an item beside its content: the revision
+// a write has to name, whether it is in the trash, and the folder it is in.
+type itemHead struct {
+	Revision int
+	State    int
+	FolderID string
+}
+
+func (s *Service) itemHead(ctx context.Context, shareID, itemID string) (itemHead, error) {
+	var r struct{ Item itemHead }
 	if err := s.C.Decode(ctx, proton.Request{Method: "GET", Path: fmt.Sprintf("/pass/v1/share/%s/item/%s", shareID, itemID)}, &r); err != nil {
-		return 0, err
+		return itemHead{}, err
 	}
-	return r.Item.Revision, nil
+	s.place(shareID, itemID, r.Item.FolderID)
+	return r.Item, nil
 }
 
 func (s *Service) fetchItems(ctx context.Context, shareID string, sk *shareKeys, withTrashed bool) ([]FullItem, error) {
@@ -1045,6 +1103,7 @@ func (s *Service) fetchItems(ctx context.Context, shareID string, sk *shareKeys,
 				Flags            int
 				Content, ItemKey string
 				KeyRotation      int
+				FolderID         string
 				CreateTime       int64
 				ModifyTime       int64
 				LastUseTime      int64
@@ -1058,9 +1117,17 @@ func (s *Service) fetchItems(ctx context.Context, shareID string, sk *shareKeys,
 			if enc.State != activeState && !withTrashed {
 				continue
 			}
-			shareKey, ok := sk.keys[enc.KeyRotation]
-			if !ok {
-				skip.Record(ctx, skip.KindItem, enc.ItemID, skip.NoKey, nil)
+			s.place(shareID, enc.ItemID, enc.FolderID)
+			wrap, folder, err := s.wrapping(ctx, shareID, sk, enc.FolderID, enc.KeyRotation)
+			switch {
+			case errors.Is(err, errFolderShut):
+				// Recorded and not counted: the folder that would not open is, and
+				// the warning says that nothing inside it is listed.
+				slog.DebugContext(ctx, "pass: an item inside a folder that could not be opened",
+					"item", enc.ItemID, "parent", enc.FolderID)
+				continue
+			case err != nil:
+				skip.Record(ctx, skip.KindItem, enc.ItemID, skipReason(err), err)
 				continue
 			}
 			ikBytes, err := base64.StdEncoding.DecodeString(enc.ItemKey)
@@ -1068,7 +1135,7 @@ func (s *Service) fetchItems(ctx context.Context, shareID string, sk *shareKeys,
 				skip.Record(ctx, skip.KindItem, enc.ItemID, skip.Malformed, err)
 				continue
 			}
-			itemKey, err := aead.Decrypt(shareKey, ikBytes, []byte(aead.TagItemKey))
+			itemKey, err := aead.Decrypt(wrap, ikBytes, []byte(aead.TagItemKey))
 			if err != nil {
 				skip.Record(ctx, skip.KindItem, enc.ItemID, skip.Undecryptable, err)
 				continue
@@ -1092,6 +1159,7 @@ func (s *Service) fetchItems(ctx context.Context, shareID string, sk *shareKeys,
 
 			item.ShareID = shareID
 			item.ItemID = enc.ItemID
+			item.inFolder(folder)
 			item.Revision = enc.Revision
 			item.State = enc.State
 			item.CreateTime = enc.CreateTime
@@ -1126,7 +1194,10 @@ func itemFromProto(it *pb.Item) *FullItem {
 		item.Email = c.Login.ItemEmail
 		item.Password = c.Login.Password
 		item.TOTP = c.Login.TotpUri
-		item.URLs = passfile.LoginURLs(c.Login)
+		item.rules = passfile.LoginURLs(c.Login)
+		for _, r := range item.rules {
+			item.URLs = append(item.URLs, r.String())
+		}
 		for _, p := range c.Login.GetPasskeys() {
 			item.Passkeys = append(item.Passkeys, passkeyFromProto(p))
 		}
@@ -1154,6 +1225,15 @@ func itemFromProto(it *pb.Item) *FullItem {
 		}
 	}
 	return item
+}
+
+// inFolder records the folder an item is in, which is nil for one at the top of
+// its vault.
+func (it *Item) inFolder(f *Folder) {
+	if f == nil {
+		return
+	}
+	it.FolderID, it.Folder = f.FolderID, f.Path
 }
 
 // keptPasskeys is the login's passkeys with the named ones gone.
@@ -1311,7 +1391,7 @@ func (s *Service) RevisionRestore(ctx context.Context, shareID, itemID string, r
 	}
 	// The revision to write against is the item's own, which runs ahead of the
 	// newest one this history lists whenever a file has been attached since.
-	current, err := s.itemRevision(ctx, shareID, itemID)
+	current, err := s.itemHead(ctx, shareID, itemID)
 	if err != nil {
 		return err
 	}
@@ -1321,7 +1401,7 @@ func (s *Service) RevisionRestore(ctx context.Context, shareID, itemID string, r
 			"Content":              base64.StdEncoding.EncodeToString(ct),
 			"ContentFormatVersion": contentFormatVersion,
 			"KeyRotation":          rotation,
-			"LastRevision":         current,
+			"LastRevision":         current.Revision,
 		},
 	}, nil)
 }
@@ -1355,6 +1435,7 @@ func (s *Service) itemHistory(ctx context.Context, shareID, itemID string) ([]fu
 					Flags            int
 					Content, ItemKey string
 					KeyRotation      int
+					FolderID         string
 					CreateTime       int64
 					ModifyTime       int64
 					AliasEmail       string
@@ -1375,12 +1456,12 @@ func (s *Service) itemHistory(ctx context.Context, shareID, itemID string) ([]fu
 		}
 		page := make([]fullRevision, 0, len(r.Revisions.RevisionsData))
 		for _, rev := range r.Revisions.RevisionsData {
-			shareKey, ok := sk.keys[rev.KeyRotation]
-			if !ok {
-				skip.Record(ctx, skip.KindItem, itemID, skip.NoKey, nil)
+			wrap, _, err := s.wrapping(ctx, shareID, sk, rev.FolderID, rev.KeyRotation)
+			if err != nil {
+				skip.Record(ctx, skip.KindItem, itemID, skipReason(err), err)
 				continue
 			}
-			item, err := decodeItem(shareKey, rev.Content, rev.ItemKey)
+			item, err := decodeItem(wrap, rev.Content, rev.ItemKey)
 			if err != nil {
 				// A revision written under a key this account no longer holds is
 				// still part of the history, so it is reported by its number rather
@@ -1414,15 +1495,15 @@ func (s *Service) itemHistory(ctx context.Context, shareID, itemID string) ([]fu
 	return out, nil
 }
 
-// decodeItem unwraps one item's content with the share key that sealed it. The
-// current item and every revision of it are stored the same way, so both read
-// through here.
-func decodeItem(shareKey []byte, content, itemKey string) (*FullItem, error) {
+// decodeItem unwraps one item's content with the key its own key is sealed
+// under. The current item and every revision of it are stored the same way, so
+// both read through here.
+func decodeItem(wrap []byte, content, itemKey string) (*FullItem, error) {
 	ikBytes, err := base64.StdEncoding.DecodeString(itemKey)
 	if err != nil {
 		return nil, err
 	}
-	key, err := aead.Decrypt(shareKey, ikBytes, []byte(aead.TagItemKey))
+	key, err := aead.Decrypt(wrap, ikBytes, []byte(aead.TagItemKey))
 	if err != nil {
 		return nil, err
 	}

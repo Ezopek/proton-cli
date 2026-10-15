@@ -206,7 +206,7 @@ func TestResultSplitsIDFromConfirmation(t *testing.T) {
 	u, out, errb := fixture(t, Options{})
 	spec := ResultSpec{
 		Action: Created, Kind: "labels", Count: 1, Name: "Work",
-		IDs: []string{"kQ81mDx4T9wLpN4vRs8kZc=="}, EmitID: true,
+		IDs: []string{"kQ81mDx4T9wLpN4vRs8kZc=="}, EmitIDs: true,
 	}
 	if err := Result(u, spec); err != nil {
 		t.Fatal(err)
@@ -217,13 +217,27 @@ func TestResultSplitsIDFromConfirmation(t *testing.T) {
 	check(t, "result_created", out, errb)
 }
 
+// A move that leaves things with new IDs prints each of them, one to a line, so
+// the same assignment captures one or many.
+func TestResultEmitsEveryID(t *testing.T) {
+	u, out, errb := fixture(t, Options{})
+	spec := ResultSpec{
+		Action: Moved, Kind: "items", Count: 2, Detail: "into Personal/Banking",
+		IDs: []string{"kQ81mDx4/5bH2mQxK", "kQ81mDx4/9xL4pQrT"}, EmitIDs: true,
+	}
+	if err := Result(u, spec); err != nil {
+		t.Fatal(err)
+	}
+	check(t, "result_emits_every_id", out, errb)
+}
+
 // An ID is data, so it is never shortened even when a terminal is attached: the
 // next command may run on another machine.
 func TestResultIDIsNeverShortened(t *testing.T) {
 	t.Setenv("PROTON_CLI_FORCE_TTY", "1")
 	u, out, _ := fixture(t, Options{})
 	full := "kQ81mDx4T9wLpN4vRs8kZc=="
-	if err := Result(u, ResultSpec{Action: Created, Kind: "labels", Count: 1, IDs: []string{full}, EmitID: true}); err != nil {
+	if err := Result(u, ResultSpec{Action: Created, Kind: "labels", Count: 1, IDs: []string{full}, EmitIDs: true}); err != nil {
 		t.Fatal(err)
 	}
 	if got := strings.TrimSpace(out.String()); got != full {
@@ -372,7 +386,7 @@ func TestResultMachineIsAlwaysStructured(t *testing.T) {
 	u, out, errb := fixture(t, Options{Format: FormatJSON})
 	spec := ResultSpec{
 		Action: Created, Kind: "labels", Count: 1, Name: "Work",
-		IDs: []string{"kQ81mDx4"}, EmitID: true,
+		IDs: []string{"kQ81mDx4"}, EmitIDs: true,
 	}
 	if err := Result(u, spec); err != nil {
 		t.Fatal(err)

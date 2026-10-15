@@ -80,9 +80,10 @@ These are the listings that can be narrowed, and what narrows them. The same fla
 - `proton pass aliases contacts list REF --desc --limit int --page int --sort string`
 - `proton pass aliases list --desc --limit int --page int --sort string --vault string`
 - `proton pass breaches list --desc --limit int --page int --sort string --type string`
+- `proton pass folders list --vault string`
 - `proton pass invitations list --desc --limit int --page int --sort string`
 - `proton pass items attachments list REF --removed`
-- `proton pass items list --desc --excluded --limit int --newer-than string --older-than string --page int --risk string --sort string --type string --vault string`
+- `proton pass items list --desc --excluded --folder string --limit int --newer-than string --older-than string --page int --recursive --risk string --sort string --type string --vault string`
 - `proton pass links list --desc --limit int --page int --sort string`
 - `proton pass settings access-tokens activity list REF --limit int --page int`
 - `proton pass settings access-tokens list --desc --limit int --page int --sort string`
@@ -252,6 +253,7 @@ One line per group, with the verbs under it. Arguments, flags and examples are i
 - `proton pass aliases` - Hide-my-email addresses that forward to you: create, disable, enable, list
 - `proton pass aliases contacts` - Addresses an alias can write to: allow, block, create, delete, list
 - `proton pass breaches` - Addresses that have appeared in a data breach: create, delete, disable, enable, get, list, resend, resolve, verify
+- `proton pass folders` - Folders that sort the items inside a vault: create, delete, list, update
 - `proton pass invitations` - What other people have offered you: accept, decline, list
 - `proton pass items` - Logins, notes, cards and the rest: create, delete, exclude, get, include, list, move, pin, totp, trash, unpin, update
 - `proton pass items attachments` - Files attached to an item: download, list, restore, update

@@ -39,6 +39,9 @@ type ImportResult struct {
 	Imported []string               `json:"imported"`
 	Skipped  []passfile.Skip        `json:"skipped"`
 	Files    []passfile.SkippedFile `json:"skipped_files"`
+	// Warnings are what landed somewhere other than the plan said, said once
+	// each.
+	Warnings []string `json:"warnings"`
 }
 
 // ImportPlan is what an import would do, worked out before any of it is done.
@@ -49,6 +52,9 @@ type ImportPlan struct {
 	Skipped []passfile.Skip
 	// SkippedFiles are the attachments that will not land, and why.
 	SkippedFiles []passfile.SkippedFile
+	// Warnings are what the import will do differently from what the file
+	// asks, said once each.
+	Warnings []string
 }
 
 // PlannedVault is one vault's worth of the file: where it will land, whether
@@ -57,7 +63,17 @@ type PlannedVault struct {
 	Name    string
 	ShareID string
 	New     bool
+	// Folders are the folders the import makes in the vault, each after the
+	// folder it goes inside.
+	Folders []PlannedFolder
 	Items   []PlannedItem
+}
+
+// PlannedFolder is one folder an import makes.
+type PlannedFolder struct {
+	Name string
+	// In is where it goes inside the vault.
+	In importSpot
 }
 
 // PlannedItem is one item on its way in, with the attachments that travel with
@@ -65,6 +81,20 @@ type PlannedVault struct {
 type PlannedItem struct {
 	passfile.Entry
 	Files []Upload
+	// In is where it goes inside the vault, and Folder that place's path from
+	// the vault, which is empty for the top.
+	In     importSpot
+	Folder string
+}
+
+// importSpot is a place inside a vault an import puts something: a folder the
+// vault has already, one the import makes, or the top.
+type importSpot struct {
+	// FolderID is a folder the vault has already.
+	FolderID string
+	// Made is the folder the import makes, counted from one in the vault's
+	// Folders; zero for none.
+	Made int
 }
 
 // Count is how many items the whole plan would write.
@@ -83,6 +113,15 @@ func (p ImportPlan) Attachments() int {
 		for _, item := range v.Items {
 			n += len(item.Files)
 		}
+	}
+	return n
+}
+
+// NewFolders is how many folders the import would make.
+func (p ImportPlan) NewFolders() int {
+	var n int
+	for _, v := range p.Vaults {
+		n += len(v.Folders)
 	}
 	return n
 }
@@ -121,6 +160,16 @@ func (s *Service) PlanImport(ctx context.Context, doc *passfile.Document, userID
 	}
 
 	plan := &ImportPlan{Skipped: doc.Skipped, SkippedFiles: doc.SkippedFiles}
+	if !limits.Folders.Allowed && filesFolders(doc) {
+		if target != "" {
+			plan.Warnings = append(plan.Warnings,
+				"Your plan has no Pass folders, so the file's folders are left out.")
+		} else {
+			plan.Warnings = append(plan.Warnings,
+				"Your plan has no Pass folders, so each folder in the file becomes a vault.")
+		}
+		doc = foldersAsVaults(doc, target == "")
+	}
 	placed, err := s.placeVaults(ctx, doc, existing, target)
 	if err != nil {
 		return nil, err
@@ -140,6 +189,7 @@ func (s *Service) PlanImport(ctx context.Context, doc *passfile.Document, userID
 			room--
 		}
 		planned := PlannedVault{Name: vault.Name, ShareID: vault.ShareID, New: vault.New}
+		var entries []passfile.Entry
 		for _, entry := range vault.Items {
 			if reason := refusedEntry(entry, doc.UserID, userID, held); reason != "" {
 				plan.Skipped = append(plan.Skipped, passfile.Skip{
@@ -147,9 +197,20 @@ func (s *Service) PlanImport(ctx context.Context, doc *passfile.Document, userID
 				})
 				continue
 			}
+			entries = append(entries, entry)
+		}
+		filing, err := s.planFolders(ctx, &planned, entries, limits.Folders)
+		if err != nil {
+			return nil, err
+		}
+		plan.Warnings = append(plan.Warnings, filing.warnings()...)
+		for _, entry := range entries {
 			files, skipped := plannedFiles(entry, limits.Storage)
 			plan.SkippedFiles = append(plan.SkippedFiles, skipped...)
-			planned.Items = append(planned.Items, PlannedItem{Entry: entry, Files: files})
+			in := filing.spot(entry.Folder)
+			planned.Items = append(planned.Items, PlannedItem{
+				Entry: entry, Files: files, In: in, Folder: filing.path(in),
+			})
 		}
 		plan.Vaults = append(plan.Vaults, planned)
 	}
@@ -320,7 +381,7 @@ func plannedFiles(entry passfile.Entry, limits StorageLimits) ([]Upload, []passf
 //
 // report is handed each attachment as it goes up, numbered within the run.
 func (s *Service) Import(ctx context.Context, plan *ImportPlan, report func(index, total int) progress.Sink) (*ImportResult, error) {
-	res := &ImportResult{Skipped: plan.Skipped, Files: plan.SkippedFiles}
+	res := &ImportResult{Skipped: plan.Skipped, Files: plan.SkippedFiles, Warnings: []string{}}
 	totalFiles, sentFiles := plan.Attachments(), 0
 
 	for _, vault := range plan.Vaults {
@@ -343,15 +404,18 @@ func (s *Service) Import(ctx context.Context, plan *ImportPlan, report func(inde
 			}
 			shareID = created
 		}
-		sk, err := s.decryptShareKeys(ctx, shareID)
+		top, rotation, err := s.keyAt(ctx, shareID, "")
 		if err != nil {
 			return nil, err
 		}
-		shareKey, rotation := sk.latest()
+		landings, warning := s.makeFolders(ctx, shareID, vault, landing{key: top, rotation: rotation})
+		if warning != "" {
+			res.Warnings = append(res.Warnings, warning)
+		}
 
 		for start := 0; start < len(vault.Items); start += importBatch {
 			batch := vault.Items[start:min(start+importBatch, len(vault.Items))]
-			ids, err := s.importItems(ctx, shareID, shareKey, rotation, batch)
+			ids, err := s.importItems(ctx, shareID, batch, landings)
 			if err != nil {
 				// Proton refuses a batch whole, so every item in it is lost and
 				// the run carries on with the next one.
@@ -381,10 +445,14 @@ func (s *Service) Import(ctx context.Context, plan *ImportPlan, report func(inde
 // The import endpoint is what the app uses, and it is the only one that carries
 // what a backup knows beyond the item's content: when it was made, when it last
 // changed, whether it was in the trash, and the address an alias stands for.
-func (s *Service) importItems(ctx context.Context, shareID string, shareKey []byte, rotation int, items []PlannedItem) ([]string, error) {
+func (s *Service) importItems(ctx context.Context, shareID string, items []PlannedItem, landings func(importSpot) (landing, error)) ([]string, error) {
 	body := make([]map[string]any, 0, len(items))
 	for _, item := range items {
-		sealed, err := sealItem(shareKey, rotation, item.Item)
+		at, err := landings(item.In)
+		if err != nil {
+			return nil, err
+		}
+		sealed, err := sealItem(at.key, at.rotation, at.folderID, item.Item)
 		if err != nil {
 			return nil, err
 		}
@@ -425,9 +493,63 @@ func (s *Service) importItems(ctx context.Context, shareID string, shareKey []by
 	return out, nil
 }
 
+// landing is where in a vault something an import brings is put, with the key
+// it is sealed under there.
+type landing struct {
+	folderID string
+	key      []byte
+	rotation int
+}
+
+// makeFolders makes the folders a plan files items in, each after the folder it
+// goes inside, and answers with where each place in the plan lands.
+//
+// A folder Proton refuses is not a reason to stop: what was to go in it lands in
+// the closest folder above it that was made, and the warning says how many.
+func (s *Service) makeFolders(ctx context.Context, shareID string, vault PlannedVault, top landing) (func(importSpot) (landing, error), string) {
+	made := make([]landing, len(vault.Folders))
+	resolve := func(spot importSpot) (landing, error) {
+		switch {
+		case spot.Made > 0:
+			return made[spot.Made-1], nil
+		case spot.FolderID != "":
+			key, rotation, err := s.keyAt(ctx, shareID, spot.FolderID)
+			return landing{folderID: spot.FolderID, key: key, rotation: rotation}, err
+		}
+		return top, nil
+	}
+	failed := 0
+	for i, folder := range vault.Folders {
+		parent, err := resolve(folder.In)
+		if err == nil {
+			var created Folder
+			if created, err = s.createFolder(ctx, shareID, parent.folderID, parent.key, parent.rotation, folder.Name); err == nil {
+				made[i] = landing{folderID: created.FolderID, key: created.key, rotation: created.rotation}
+				continue
+			}
+		} else {
+			parent = top
+		}
+		// Recorded and not counted: the warning the result carries says how many
+		// folders were not made, and nothing the run read is missing.
+		slog.DebugContext(ctx, "pass: an import could not make a folder", "error", err)
+		failed++
+		made[i] = parent
+	}
+	switch failed {
+	case 0:
+		return resolve, ""
+	case 1:
+		return resolve, "1 folder could not be made. The items filed there landed in the closest folder above."
+	}
+	return resolve, fmt.Sprintf("%d folders could not be made. The items filed there landed in the closest folder above.", failed)
+}
+
 // sealItem locks one item under a fresh key of its own, which is sealed in turn
-// under the vault's.
-func sealItem(shareKey []byte, rotation int, item *pb.Item) (map[string]any, error) {
+// under the key of where it goes: the vault's, or the folder's it is put in.
+// Creating an item and reading one in from a file differ only in where the
+// protobuf came from, so both seal it here.
+func sealItem(wrap []byte, rotation int, folderID string, item *pb.Item) (map[string]any, error) {
 	itemKey, err := aead.NewKey()
 	if err != nil {
 		return nil, err
@@ -440,7 +562,7 @@ func sealItem(shareKey []byte, rotation int, item *pb.Item) (map[string]any, err
 	if err != nil {
 		return nil, err
 	}
-	ek, err := aead.Encrypt(shareKey, itemKey, []byte(aead.TagItemKey))
+	ek, err := aead.Encrypt(wrap, itemKey, []byte(aead.TagItemKey))
 	if err != nil {
 		return nil, err
 	}
@@ -449,6 +571,7 @@ func sealItem(shareKey []byte, rotation int, item *pb.Item) (map[string]any, err
 		"ContentFormatVersion": contentFormatVersion,
 		"ItemKey":              base64.StdEncoding.EncodeToString(ek),
 		"KeyRotation":          rotation,
+		"FolderID":             folderOrNull(folderID),
 	}, nil
 }
 

@@ -55,6 +55,10 @@ type Entry struct {
 	// exports carry one.
 	AliasEmail string
 	Files      []File
+	// Folder is where inside its vault the file filed the item, as the names of
+	// the folders from the top. Only Bitwarden's folders and collections carry
+	// one.
+	Folder []string
 }
 
 // File is an attachment travelling with an item.

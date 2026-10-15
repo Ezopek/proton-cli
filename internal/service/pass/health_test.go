@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/roman-16/proton-cli/internal/passfile"
 )
 
 // login builds one decrypted login the way a listing hands them to the checks.
@@ -12,7 +14,11 @@ func login(name, password string, urls ...string) FullItem {
 	it.Type = "login"
 	it.Name = name
 	it.ItemID = name
-	it.URLs = urls
+	for _, u := range urls {
+		rule := passfile.ParseURLRule(u)
+		it.rules = append(it.rules, rule)
+		it.URLs = append(it.URLs, rule.String())
+	}
 	return it
 }
 
@@ -108,10 +114,12 @@ func TestMissing2FAWantsASiteThatOffersOneAndNothingStoredAgainstIt(t *testing.T
 		login("deep", "M3ssier-Object-88!", "https://gist.github.com/roman"),
 		login("nowhere", "M3ssier-Object-88!"),
 		login("unlisted", "M3ssier-Object-88!", "https://nothing-listed.example"),
+		login("pattern", "M3ssier-Object-88!", "pattern:*.github.com/*"),
+		login("never", "M3ssier-Object-88!", "never:https://github.com"),
 		withCode, withField, withPasskey,
 	})
 
-	if got, want := names(rows), "bare deep"; got != want {
+	if got, want := names(rows), "bare deep never"; got != want {
 		t.Errorf("missing2FA returned %q, want %q", got, want)
 	}
 }

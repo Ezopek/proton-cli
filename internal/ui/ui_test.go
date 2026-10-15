@@ -127,7 +127,7 @@ func TestQuietSilencesOnlyStderr(t *testing.T) {
 	u, out, errb := fixture(t, Options{Quiet: true})
 	u.Note("authenticating")
 	u.Hint("3 messages.")
-	if err := Result(u, ResultSpec{Action: Created, Kind: "labels", Count: 1, IDs: []string{"abc"}, EmitID: true}); err != nil {
+	if err := Result(u, ResultSpec{Action: Created, Kind: "labels", Count: 1, IDs: []string{"abc"}, EmitIDs: true}); err != nil {
 		t.Fatal(err)
 	}
 	if errb.Len() != 0 {

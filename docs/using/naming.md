@@ -41,7 +41,7 @@ Work      -- 5bH2mQxK
 Personal  -- 9xL4pQrT
 ```
 
-`--folder`, `--label`, `--parent`, `--vault`, `--calendar`, `--album`, `--computer`, `--shared`, `--mailbox`, `--suffix` and `--into` all complete this way, and `--folder` and the mail `--into` offer the built-in folders too. In Drive, `--into` takes a path.
+`--folder`, `--label`, `--parent`, `--vault`, `--calendar`, `--album`, `--computer`, `--shared`, `--mailbox`, `--suffix` and `--into` all complete this way, and in Mail `--folder` and `--into` offer the built-in folders too. In Drive, `--into` takes a path.
 
 ```console
 $ proton mail conversations list
@@ -113,6 +113,18 @@ proton drive items list /Documents --computer "Work laptop"
 proton drive items download /report.pdf --shared Project --dest-dir .
 proton drive items list / --link 'https://drive.proton.me/urls/7X2K9M3N1P#kQ81mDx4T9wL'
 ```
+
+## Pass folders use paths
+
+A Pass folder is named by its path from its vault, or by its two IDs as a list printed them:
+
+```bash
+proton pass items list --folder Personal/Banking
+proton pass items move github.com --into Personal/Banking
+proton pass folders delete SHARE_ID/FOLDER_ID
+```
+
+Where an item can go, the vault's name on its own is its top, outside every folder.
 
 ## A message behind a password
 

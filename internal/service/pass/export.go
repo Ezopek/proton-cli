@@ -60,9 +60,14 @@ func (s *Service) PlanExport(ctx context.Context, userID string, withFiles bool)
 			plan.SkippedVaults++
 			continue
 		}
+		tree, err := s.folders(ctx, v.ShareID)
+		if err != nil {
+			return nil, err
+		}
 		plan.Doc.Vaults[v.ShareID] = &passfile.ExportedVault{
 			Name: v.Name, Description: v.Description,
 			Display: passfile.ExportedDisplay{Color: ColorValue(v.Color), Icon: IconValue(v.Icon)},
+			Folders: exportedFolders(tree),
 			Items:   []passfile.ExportedItem{},
 		}
 	}
@@ -75,6 +80,7 @@ func (s *Service) PlanExport(ctx context.Context, userID string, withFiles bool)
 			ShareID: it.ShareID, ItemID: it.ItemID, Item: it.raw,
 			State: it.State, Alias: it.Alias,
 			CreateTime: it.CreateTime, ModifyTime: it.ModifyTime,
+			FolderID: it.FolderID,
 		}
 		if withFiles && it.hasAttachments {
 			files, err := s.Attachments(ctx, it.ShareID, it.ItemID)
@@ -97,6 +103,20 @@ func (s *Service) PlanExport(ctx context.Context, userID string, withFiles bool)
 		vault.Items = append(vault.Items, *exported)
 	}
 	return plan, nil
+}
+
+// exportedFolders are a vault's folders as the document lists them.
+func exportedFolders(tree *folderTree) []passfile.ExportedFolder {
+	out := []passfile.ExportedFolder{}
+	for _, f := range tree.list() {
+		folder := passfile.ExportedFolder{FolderID: f.FolderID, Name: f.Name}
+		if f.ParentID != "" {
+			parent := f.ParentID
+			folder.ParentFolderID = &parent
+		}
+		out = append(out, folder)
+	}
+	return out
 }
 
 // WriteArchive writes the zip Proton Pass reads.

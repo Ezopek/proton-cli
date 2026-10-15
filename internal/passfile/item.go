@@ -56,50 +56,6 @@ type Field struct {
 	TOTP   bool
 }
 
-// LoginURLs are the addresses a login item carries.
-//
-// The app keeps them in autofill_urls, each with the rule that decides when it
-// fills, and repeats the plain ones in urls for clients too old to know the
-// field. An item written by such a client has only urls, so that is what is read
-// when the newer field is empty.
-func LoginURLs(l *pb.ItemLogin) []string {
-	autofill := l.GetAutofillUrls()
-	if len(autofill) == 0 {
-		return l.GetUrls()
-	}
-	out := make([]string, 0, len(autofill))
-	for _, u := range autofill {
-		out = append(out, u.GetUrl())
-	}
-	return out
-}
-
-// SetLoginURLs puts addresses on a login item, writing both fields the app
-// writes.
-//
-// urls is what an older client reads, and it may only hold the addresses that
-// fill everywhere, so it carries exactly the ones set here.
-func SetLoginURLs(l *pb.ItemLogin, urls []string) {
-	autofill := make([]*pb.AutofillUrl, 0, len(urls))
-	for _, u := range urls {
-		autofill = append(autofill, &pb.AutofillUrl{Url: u, Mode: pb.AutofillUrl_Default})
-	}
-	l.AutofillUrls = autofill
-	l.Urls = urls
-}
-
-// defaultModeURLs are the addresses that fill wherever they match, which are the
-// only ones an older client may be shown.
-func defaultModeURLs(urls []*pb.AutofillUrl) []string {
-	out := make([]string, 0, len(urls))
-	for _, u := range urls {
-		if u.GetMode() == pb.AutofillUrl_Default {
-			out = append(out, u.GetUrl())
-		}
-	}
-	return out
-}
-
 func (in item) entry(kind string, content *pb.Content) Entry {
 	out := &pb.Item{
 		Metadata:    &pb.Metadata{Name: in.Name, Note: in.Note},
@@ -123,11 +79,11 @@ func (in item) login() Entry {
 		Password:     in.Password,
 		TotpUri:      totpURI(in.TOTP, in.Name),
 	}
-	SetLoginURLs(login, urls)
-	for _, u := range login.AutofillUrls {
-		u.Mode = in.Modes[u.Url]
+	rules := make([]URLRule, 0, len(urls))
+	for _, u := range urls {
+		rules = append(rules, URLRule{Value: u, Mode: in.Modes[u]})
 	}
-	login.Urls = defaultModeURLs(login.AutofillUrls)
+	SetLoginURLs(login, rules)
 	return in.entry("login", &pb.Content{Content: &pb.Content_Login{Login: login}})
 }
 

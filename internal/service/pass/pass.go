@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"sync"
 
 	pgp "github.com/ProtonMail/gopenpgp/v3/crypto"
 	"github.com/roman-16/proton-cli/internal/account/keys"
@@ -26,6 +27,12 @@ type Service struct {
 	// needs, and several need it twice: a listing walks the vaults, and resolving
 	// a name walks them again for the items shared on their own.
 	shareList fetch.Memo[[]Share]
+	// A vault's folders are opened once per run: every item inside one needs the
+	// chain of folder keys above it.
+	trees fetch.Memo[*folderTree]
+	// placed is which folder each item read so far sits in, keyed by its share
+	// and item IDs, so its key is found without asking where it is again.
+	placed sync.Map
 }
 
 func New(c proton.Doer, k keys.Get) *Service { return &Service{C: c, keys: k} }

@@ -412,28 +412,33 @@ func TestPassItemsMoveBetweenVaults(t *testing.T) {
 		"--username", "tester", "--secret-file", secretFile(t, "password", "travels-with-it"))
 	cleanupRun(t, fmt.Sprintf("Delete item: proton pass items delete -- %s", ref),
 		"pass", "items", "delete", "--", ref)
+	other := createItem(t, "--type", "note", "--name", name+"-note")
+	cleanupRun(t, fmt.Sprintf("Delete item: proton pass items delete -- %s", other),
+		"pass", "items", "delete", "--", other)
 
 	vault := testID() + "-elsewhere"
 	shareID := createVault(t, vault)
 	cleanupRun(t, fmt.Sprintf("Delete vault: proton pass vaults delete -- %s", shareID),
 		"pass", "vaults", "delete", "--", shareID)
 
-	moved := strings.TrimSpace(runOK(t, "pass", "items", "move", "--into", vault, "--", ref))
-	if !looksLikePairRef(moved) {
-		t.Fatalf("expected the new SHARE_ID/ITEM_ID on stdout, got %q", moved)
+	// Both go in one command, and each comes out with a new ID, one to a line.
+	stdout := runOK(t, "pass", "items", "move", "--into", vault, "--", ref, other)
+	moved := strings.Fields(stdout)
+	if len(moved) != 2 {
+		t.Fatalf("expected two SHARE_ID/ITEM_ID lines on stdout, got %q", stdout)
 	}
-	if moved == ref {
-		t.Error("a moved item keeps the reference it had, and it is in another vault now")
+	for _, m := range moved {
+		if !looksLikePairRef(m) || !strings.HasPrefix(m, shareID+"/") {
+			t.Errorf("%s is not in the vault it was moved into (%s)", m, shareID)
+		}
+		if m == ref || m == other {
+			t.Error("a moved item keeps the reference it had, and it is in another vault now")
+		}
 	}
-	cleanupRun(t, fmt.Sprintf("Delete moved item: proton pass items delete -- %s", moved),
-		"pass", "items", "delete", "--", moved)
 
-	got := runOK(t, "pass", "items", "get", "--", moved)
+	got := runOK(t, "pass", "items", "get", "--", moved[0])
 	assertField(t, got, "Name:", name)
 	assertField(t, got, "Password:", "travels-with-it")
-	if !strings.HasPrefix(moved, shareID+"/") {
-		t.Errorf("%s is not in the vault it was moved into (%s)", moved, shareID)
-	}
 }
 
 // Pinning carries no content, so nothing is encrypted: it is the vault recording
@@ -974,8 +979,9 @@ func TestPassExportCSVRoundTrip(t *testing.T) {
 	}
 }
 
-// A file another password manager wrote comes in whole: its folders become
-// vaults, and the kinds Pass has an item for become that item.
+// A file another password manager wrote comes in whole: on a plan without
+// folders its folders become vaults, and the kinds Pass has an item for become
+// that item.
 func TestPassImportFromBitwarden(t *testing.T) {
 	name := testID() + "-bitwarden"
 	export := filepath.Join(t.TempDir(), "bitwarden.json")
@@ -998,15 +1004,18 @@ func TestPassImportFromBitwarden(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	// A dry run says what would land, and does none of it.
+	// A dry run says what would land, and does none of it. The free plan has no
+	// folders, so the folder in the file is a vault of its own, and the run says
+	// so.
 	stdout, stderr := runOKStderr(t, "--dry-run", "pass", "import", export, "--manager", "bitwarden")
 	assertContains(t, stderr, "Dry run")
+	assertContains(t, stderr, "Your plan has no Pass folders, so each folder in the file becomes a vault.")
 	for _, want := range []string{name + "-login", "credit-card", name} {
 		assertContains(t, stdout+stderr, want)
 	}
 
-	// The folder in the file becomes a vault of that name, which is what the
-	// cleanup takes away again.
+	// That vault is named after the folder, and is what the cleanup takes away
+	// again.
 	cleanup(t, fmt.Sprintf("Delete the vault an import made: proton pass vaults delete -- %s", name),
 		func() error {
 			_, stderr, code, err := runArgs(nil, "--yes", "pass", "vaults", "delete", "--", name)
@@ -1132,4 +1141,49 @@ func createItemReported(t *testing.T, args ...string) (ref, stderr string) {
 		t.Fatalf("pass never answered about the item it had just made: %s", ref)
 	}
 	return ref, stderr
+}
+
+// An item moved into a folder of another vault is sealed for that folder, and
+// answers to a new ID there.
+func TestPassItemsMoveIntoAnotherVaultsFolder(t *testing.T) {
+	_, from := aVaultTheRunMade(t, "move-from")
+	toShare, to := aVaultTheRunMade(t, "move-to")
+	folderMade(t, to, to+"/Inbox", "--name", "Inbox", "--vault", to)
+
+	name := testID() + "-crossing"
+	ref := assertBarePairRef(t, runOKPaid(t, "pass", "items", "create", "--name", name, "--vault", from,
+		"--secret-file", secretFile(t, "password", "crossed-over")), "pass items create")
+	if !waitFor(30*time.Second, time.Second, func() bool {
+		_, _, code := runPaid(t, "pass", "items", "get", "--", ref)
+		return code == 0
+	}) {
+		t.Fatalf("pass never answered about the item it had just made: %s", ref)
+	}
+
+	moved := strings.TrimSpace(runOKPaid(t, "pass", "items", "move", "--into", to+"/Inbox", "--", ref))
+	if !strings.HasPrefix(moved, toShare+"/") || moved == ref {
+		t.Fatalf("the moved item answers to %s, want a new ID in %s", moved, toShare)
+	}
+	got := runOKPaid(t, "pass", "items", "get", "--", moved)
+	assertField(t, got, "Folder:", to+"/Inbox")
+	assertField(t, got, "Password:", "crossed-over")
+}
+
+// A login's URLs keep the rule each fills under, and an update replaces them all.
+func TestPassLoginURLRules(t *testing.T) {
+	name := testID() + "-rules"
+	site := "https://" + name + ".example.invalid"
+	createItem(t, "--name", name, "--url", site, "--url", "never:"+site+"/admin",
+		"--secret-file", secretFile(t, "password", "ruled"))
+	cleanupRun(t, fmt.Sprintf("Delete item: proton pass items delete %s", name),
+		"pass", "items", "delete", name)
+
+	got := runOK(t, "pass", "items", "get", name)
+	assertContains(t, got, site+"\n")
+	assertContains(t, got, "never:"+site+"/admin")
+
+	runOK(t, "pass", "items", "update", name, "--url", "exact-url:"+site+"/login")
+	got = runOK(t, "pass", "items", "get", name)
+	assertContains(t, got, "exact-url:"+site+"/login")
+	assertNotContains(t, got, "never:")
 }

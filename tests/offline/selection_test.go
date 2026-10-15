@@ -369,3 +369,25 @@ func TestAContactsDetailsAreJudgedBeforeSigningIn(t *testing.T) {
 		refuses(t, 1, tt.args, tt.phrase)
 	}
 }
+
+// A folder's name and a URL's rule are judged from the command line, and so is
+// a filter that descends from no folder.
+func TestPassFoldersAndURLRulesAreJudgedFirst(t *testing.T) {
+	for _, tt := range []struct {
+		args   []string
+		phrase string
+	}{
+		{[]string{"pass", "folders", "create"}, "A folder needs a name"},
+		{[]string{"pass", "folders", "create", "--name", "Banking/Cards"}, "cannot contain /"},
+		{[]string{"pass", "folders", "update", "Personal/Banking", "--name", "a/b"}, "cannot contain /"},
+		{[]string{"pass", "items", "list", "--recursive"}, "no folder was named"},
+		{[]string{"pass", "items", "trash", "--type", "note", "--recursive"}, "no folder was named"},
+		{[]string{"pass", "items", "create", "--name", "GitHub", "--url", "regex:^https://"}, "regular expression"},
+		{[]string{"pass", "items", "create", "--name", "GitHub", "--url", "never:"}, "nothing after the rule"},
+		{[]string{"pass", "items", "create", "--name", "GitHub", "--url", "exact-url:not an address"}, "is not an address"},
+		{[]string{"pass", "items", "create", "--name", "GitHub", "--url", "github.com", "--url", "github.com"}, "given twice"},
+		{[]string{"pass", "items", "update", "GitHub", "--url", "regex:^https://"}, "regular expression"},
+	} {
+		refuses(t, 1, tt.args, tt.phrase)
+	}
+}

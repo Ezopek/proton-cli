@@ -130,6 +130,7 @@ proto:
         --go_out=internal/service/pass/proto --go_opt=paths=source_relative \
         internal/service/pass/proto/protos/action-payload-v1.proto \
         internal/service/pass/proto/protos/file-v1.proto \
+        internal/service/pass/proto/protos/folder-v1.proto \
         internal/service/pass/proto/protos/item-v1.proto \
         internal/service/pass/proto/protos/vault-v1.proto
 

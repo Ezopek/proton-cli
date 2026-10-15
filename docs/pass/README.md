@@ -2,7 +2,7 @@
 
 Logins, notes, cards, SSH keys, identities, aliases and two-factor codes in Proton Pass. Items are decrypted on your machine with the vault and item keys.
 
-This page is what people actually do. For every command and flag, see the reference: [items](items.md), [vaults](vaults.md), [aliases](aliases.md), [links](links.md), [sharing](sharing.md), [shared](shared.md), [invitations](invitations.md), [trash](trash.md), [breaches](breaches.md), [settings](settings.md), [import and export](pass.md).
+This page is what people actually do. For every command and flag, see the reference: [items](items.md), [vaults](vaults.md), [folders](folders.md), [aliases](aliases.md), [links](links.md), [sharing](sharing.md), [shared](shared.md), [invitations](invitations.md), [trash](trash.md), [breaches](breaches.md), [settings](settings.md), [import and export](pass.md).
 
 An item takes two IDs to address, written as one token: `SHARE_ID/ITEM_ID`. A name or URL works instead.
 
@@ -55,6 +55,26 @@ pass-store show github | proton pass items update github.com --secret-file passw
 Types are `login` (the default), `note`, `credit-card`, `wifi`, `ssh-key`, `identity`, `alias` and `custom`. Identity stores thirty-one fields, which the [reference](items.md) lists.
 
 `update` takes the same flags as `create` and leaves anything you do not pass alone.
+
+### Choose where a login fills in
+
+A URL fills on its address, its parent domain and their subdomains. A rule in front of it fills more narrowly:
+
+```bash
+proton pass items create --name GitHub --url github.com --url never:https://gist.github.com --generate-password
+proton pass items update GitHub --url github.com --url exact-url:https://github.com/login
+```
+
+| Rule | Fills on |
+| --- | --- |
+| *(none)* | The address, its parent domain and their subdomains |
+| `exact-host:` | That host only |
+| `exact-url:` | That exact URL |
+| `starts-with:` | Every URL that starts with it |
+| `pattern:` | URLs matching a wildcard pattern, such as `pattern:*.github.com/*` |
+| `never:` | Never on that URL |
+
+`items get` shows each URL with its rule in front, the way `--url` takes it. `--url` on `update` replaces every URL the login has, so name the ones to keep as well. A `regex:` rule is shown but can only be set in the app.
 
 ### Secrets
 
@@ -131,9 +151,13 @@ A login whose only way in is a passkey has no password to check, so `items list 
 
 ```bash
 proton pass items move github.com --into Work
+proton pass items move "Bank Austria" --into Personal/Banking
+proton pass items move --folder Personal/Old --into Personal/Archive
 ```
 
-The item keeps its history and everything it holds, but gets a new ID, which is printed on stdout.
+`--into` is a vault, or a [folder](#folders) in one. A vault alone is its top, outside every folder. `move` takes the same filters as `trash`, so `--folder` moves everything a folder holds.
+
+Items keep their history and everything they hold. An item moved to another vault gets a new ID. Every moved item's ID is printed on stdout, one per line.
 
 ## Trash and delete
 
@@ -172,6 +196,26 @@ A hidden vault is left out of `items list`, the trash, `aliases list`, `sharing 
 - `trash empty` leaves the trash of a hidden vault alone.
 - A new item without `--vault` goes to your first vault that is not hidden.
 - Only you stop seeing it: hiding a shared vault changes nothing for its other members.
+
+## Folders
+
+Folders sort the items inside a vault. A folder is named by its path from its vault: `Personal/Banking/Cards`.
+
+```bash
+proton pass folders create --name Banking --vault Personal
+proton pass folders create --name Cards --parent Personal/Banking
+proton pass folders list
+proton pass items list --folder Personal/Banking               # what Banking holds
+proton pass items list --folder Personal/Banking --recursive   # and its folders
+proton pass items create --name "Bank Austria" --folder Personal/Banking --generate-password
+proton pass folders update Personal/Banking --name Finance
+proton pass folders delete Personal/Old
+```
+
+- Making, renaming and filling folders needs a paid Pass plan. Any plan can list and delete them.
+- `--vault` still lists everything in a vault, folders included. `items list` shows a FOLDER column when an item is in one.
+- Two folders in one place cannot share a name, and a name cannot contain `/`.
+- `folders delete` takes everything inside the folder with it, and asks first.
 
 ## Aliases
 
@@ -411,6 +455,8 @@ proton pass import chrome-passwords.csv --manager chrome --vault Personal
 Logins, notes, cards, identities, SSH keys, networks and custom items come across with their custom fields and one-time codes. Attachments come from 1Password, Bitwarden and Enpass, and need a paid Pass plan.
 
 A vault, folder or group in the file becomes a vault of that name, made if it is not there. Items in none land in your first vault. `--vault` puts everything into the one you name.
+
+Bitwarden's folders and collections are the exception: they become [folders](#folders) in the vault the items land in, and a folder already there at the same path takes its items. On a plan without folders, each becomes a vault, or is left out under `--vault`.
 
 Importing **adds** items. Nothing in a file says which existing item it was, so importing the same file twice puts the items in twice. Use `--dry-run` to list what would land, and where.
 

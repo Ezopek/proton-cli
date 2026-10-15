@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -36,6 +37,9 @@ func importCmd() *cobra.Command {
 			"A vault, folder or group in the file lands in the vault of that name, which\n" +
 			"is created if it does not exist. Items in none land in your first vault.\n" +
 			"--vault puts everything into the one you name.\n\n" +
+			"Bitwarden's folders and collections become folders in the vault the items\n" +
+			"land in, and a folder already there takes its items. On a plan without\n" +
+			"folders, each becomes a vault, or is left out under --vault.\n\n" +
 			"Items are always added, never matched against what is already there, so\n" +
 			"reading the same file twice creates duplicates.\n\n" +
 			"Attachments in the file are put back on their items, which needs a paid\n" +
@@ -68,6 +72,9 @@ func importCmd() *cobra.Command {
 			if plan.Count() == 0 && len(plan.Skipped) == 0 {
 				return kit.Fail("%s holds no items.", c.Args[0])
 			}
+			for _, warning := range plan.Warnings {
+				c.Warn("%s", warning)
+			}
 			// A preview says what will not land as well as what will, so a dry run
 			// and the run itself name the same things.
 			if c.App.DryRun {
@@ -79,6 +86,7 @@ func importCmd() *cobra.Command {
 				}
 			}
 			var files []passfile.SkippedFile
+			var landed []string
 			if err := kit.Attempt(c, ui.ResultSpec{
 				Action: ui.Imported, Kind: "items", Count: plan.Count(),
 				Detail:  "from " + c.Args[0] + landing(plan, vault),
@@ -88,10 +96,13 @@ func importCmd() *cobra.Command {
 				if err != nil {
 					return nil, err
 				}
-				files = res.Files
+				files, landed = res.Files, res.Warnings
 				return res.Skipped, nil
 			}); err != nil {
 				return err
+			}
+			for _, warning := range landed {
+				c.Warn("%s", warning)
 			}
 			// An attachment that did not go up costs the file and not the item, so
 			// it is named after the result rather than counted out of it.
@@ -134,20 +145,24 @@ func importPath(c *kit.Invocation, path string) (string, func(), error) {
 	return spooled.Name(), discard, nil
 }
 
-// landing says where the items go, since making a vault is the part a person
-// cannot undo by deleting a few items.
+// landing says where the items go, since making a vault or a folder is the part
+// a person cannot undo by deleting a few items.
 func landing(plan *passsvc.ImportPlan, vault string) string {
+	var made []string
+	if n := plan.NewVaults(); n > 0 {
+		made = append(made, ui.Quantity(n, "vaults"))
+	}
+	if n := plan.NewFolders(); n > 0 {
+		made = append(made, ui.Quantity(n, "folders"))
+	}
+	into := ""
 	if vault != "" {
-		return " into " + vault
+		into = " into " + vault
 	}
-	switch n := plan.NewVaults(); n {
-	case 0:
-		return ""
-	case 1:
-		return ", making 1 vault"
-	default:
-		return fmt.Sprintf(", making %d vaults", n)
+	if len(made) == 0 {
+		return into
 	}
+	return into + ", making " + strings.Join(made, " and ")
 }
 
 // plannedRow is one item an import would write, as a preview shows it.
@@ -155,6 +170,7 @@ type plannedRow struct {
 	Name        string `json:"name"`
 	Type        string `json:"type"`
 	Vault       string `json:"vault"`
+	Folder      string `json:"folder,omitempty"`
 	Attachments int    `json:"attachments"`
 }
 
@@ -163,6 +179,7 @@ func importColumns(plan *passsvc.ImportPlan) []ui.Column[plannedRow] {
 		{Header: "NAME", Cell: func(r plannedRow) string { return r.Name }},
 		{Header: "TYPE", Cell: func(r plannedRow) string { return r.Type }},
 		{Header: "VAULT", Cell: func(r plannedRow) string { return r.Vault }},
+		{Header: "FOLDER", Sparse: true, Cell: func(r plannedRow) string { return r.Folder }},
 	}
 	if plan.Attachments() == 0 {
 		return cols
@@ -178,7 +195,7 @@ func plannedRows(plan *passsvc.ImportPlan) []plannedRow {
 	for _, v := range plan.Vaults {
 		for _, item := range v.Items {
 			out = append(out, plannedRow{
-				Name: item.Name, Type: item.Kind, Vault: v.Name,
+				Name: item.Name, Type: item.Kind, Vault: v.Name, Folder: item.Folder,
 				Attachments: len(item.Files),
 			})
 		}

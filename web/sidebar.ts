@@ -102,6 +102,7 @@ export const sidebar: NonNullable<StarlightUserConfig["sidebar"]> = [
       { label: "Guide", slug: "pass" },
       "pass/items",
       "pass/vaults",
+      "pass/folders",
       "pass/aliases",
       "pass/links",
       "pass/sharing",

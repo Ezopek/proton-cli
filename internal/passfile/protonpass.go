@@ -207,7 +207,7 @@ func protonContent(kind string, raw json.RawMessage, version string) (*pb.Conten
 	}
 	if login, ok := content.GetContent().(*pb.Content_Login); ok {
 		if len(login.Login.GetAutofillUrls()) == 0 {
-			SetLoginURLs(login.Login, login.Login.GetUrls())
+			SetLoginURLs(login.Login, defaultRules(login.Login.GetUrls()))
 		}
 	}
 	return content, nil
@@ -395,7 +395,7 @@ func protonCSVEntry(r row, kind string, identifierIsEmail bool) (*Entry, error) 
 		entry := in.identity()
 		return &entry, nil
 	case "login", "":
-		in.URLs = splitList(r.get("autofillUrls"), r.get("url"))
+		in.URLs, in.Modes = splitList(r.get("autofillUrls"), r.get("url"))
 		in.Email, in.Username = r.get("email"), r.get("username")
 		if identifierIsEmail {
 			in.Email, in.Username = r.get("username"), ""
@@ -429,18 +429,22 @@ func noteOf(column string) string {
 }
 
 // splitList reads the addresses out of whichever column the file carries them
-// in: the structured one the app writes now, or the plain list beside it.
-func splitList(structured, plain string) []string {
+// in, with the rule each one fills under: the structured column the app writes
+// now carries the rules, and the plain list beside it holds only addresses under
+// the default rule.
+func splitList(structured, plain string) ([]string, map[string]pb.AutofillUrl_Mode) {
 	var urls []autofillURL
 	if err := json.Unmarshal([]byte(structured), &urls); err == nil && len(urls) > 0 {
 		out := make([]string, 0, len(urls))
+		modes := make(map[string]pb.AutofillUrl_Mode, len(urls))
 		for _, u := range urls {
 			out = append(out, u.URL)
+			modes[u.URL] = pb.AutofillUrl_Mode(u.Mode)
 		}
-		return out
+		return out, modes
 	}
 	if plain == "" {
-		return nil
+		return nil, nil
 	}
-	return strings.Split(plain, ", ")
+	return strings.Split(plain, ", "), nil
 }

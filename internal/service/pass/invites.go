@@ -168,6 +168,10 @@ func (s *Service) itemKeys(ctx context.Context, shareID, itemID string) (map[int
 	if err != nil {
 		return nil, err
 	}
+	folderID, err := s.itemFolder(ctx, shareID, itemID)
+	if err != nil {
+		return nil, err
+	}
 	var r struct {
 		Keys struct {
 			Keys []struct {
@@ -186,10 +190,10 @@ func (s *Service) itemKeys(ctx context.Context, shareID, itemID string) (map[int
 	// opens, so nothing is being hidden - the log is here to say which of the
 	// rotations was the problem.
 	for _, k := range r.Keys.Keys {
-		shareKey, ok := sk.keys[k.KeyRotation]
-		if !ok {
-			slog.DebugContext(ctx, "pass: no share key for an item key's rotation",
-				"item", itemID, "count", k.KeyRotation)
+		wrap, _, err := s.wrapping(ctx, shareID, sk, folderID, k.KeyRotation)
+		if err != nil {
+			slog.DebugContext(ctx, "pass: no key to open an item key's rotation with",
+				"item", itemID, "count", k.KeyRotation, "error", err)
 			continue
 		}
 		sealed, err := base64.StdEncoding.DecodeString(k.Key)
@@ -197,9 +201,9 @@ func (s *Service) itemKeys(ctx context.Context, shareID, itemID string) (map[int
 			slog.DebugContext(ctx, "pass: an item key is not base64", "item", itemID, "error", err)
 			continue
 		}
-		key, err := aead.Decrypt(shareKey, sealed, []byte(aead.TagItemKey))
+		key, err := aead.Decrypt(wrap, sealed, []byte(aead.TagItemKey))
 		if err != nil {
-			slog.DebugContext(ctx, "pass: an item key will not open with its share key",
+			slog.DebugContext(ctx, "pass: an item key will not open with the key it is sealed under",
 				"item", itemID, "error", err)
 			continue
 		}

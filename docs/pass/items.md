@@ -96,6 +96,10 @@ A secret is read from a file, never from a flag value: --secret-file NAME=FILE, 
 
 --generate-password makes one instead, so a new login needs no file: it is shaped by the same flags `pass generate` takes.
 
+--url takes an address, which fills on it, its parent domain and their subdomains. A rule in front fills it more narrowly: exact-host:, exact-url:, starts-with:, pattern: or never:. A regex: rule can only be set in the app.
+
+--folder names a folder by its path from its vault, Personal/Banking, and needs a paid Pass plan.
+
 --attach puts a local file on the item, and needs a paid Pass plan.
 
 ```
@@ -104,6 +108,8 @@ proton pass items create
 
 ```bash
 proton pass items create --name GitHub --username roman --url github.com --generate-password
+proton pass items create --name GitHub --url github.com --url never:https://gist.github.com --generate-password
+proton pass items create --name 'Bank Austria' --username roman --folder Personal/Banking --generate-password
 proton pass items create --type note --name Passport --attach ~/scans/passport.pdf
 proton pass items create --name Router --generate-password --words 5
 proton pass items create --type note --name 'Door codes' --note 'Front: 1234'
@@ -126,6 +132,7 @@ proton pass items create --type custom --name Router --field 'Network/SSID=home'
 | `--field stringArray` | Set a custom field, as NAME=VALUE or SECTION/NAME=VALUE (repeatable) |
 | `--first-name string` | Set the first name (identity) |
 | `--floor string` | Set the floor (identity) |
+| `--folder string` | Put it in this folder, by path or ID |
 | `--full-name string` | Set the full name (identity) |
 | `--gender string` | Set the gender (identity) |
 | `--generate-password` | Make the password rather than being given one |
@@ -157,7 +164,7 @@ proton pass items create --type custom --name Router --field 'Network/SSID=home'
 | `--ssid string` | Set the network name (wifi) |
 | `--state string` | Set the state (identity) |
 | `--type string` | What kind of item: login, note, credit-card, wifi, ssh-key, identity, alias, custom (default `login`) |
-| `--url string` | Set the URL (login) |
+| `--url stringArray` | Set a URL, with a rule in front to fill it more narrowly (login, repeatable) |
 | `--username string` | Set the username (login) |
 | `--vault string` | Which vault, by name or ID (default: your first) |
 | `--website string` | Set the website (identity) |
@@ -183,9 +190,11 @@ proton pass items delete --vault Work --all --yes
 | Flag | Description |
 | --- | --- |
 | `--all` | Act on everything in scope, rather than a subset |
+| `--folder string` | Match only this folder, by path or ID |
 | `--limit int` | Most items to affect; 0 for no cap (default `150`) |
 | `--newer-than string` | Match items newer than DURATION |
 | `--older-than string` | Match items older than DURATION (e.g. 30d, 2w, 1h) |
+| `--recursive` | Match the folders inside --folder too |
 | `--type string` | Match only this kind of item: login, note, credit-card, wifi, ssh-key, identity, alias, custom |
 | `--vault string` | Match only this vault, by name or ID |
 
@@ -261,6 +270,8 @@ proton pass items list
 proton pass items list
 proton pass items list --vault Work
 proton pass items list --type login
+proton pass items list --folder Personal/Banking
+proton pass items list --folder Personal/Banking --recursive
 proton pass items list --risk reused
 proton pass items list --risk weak --vault Work
 proton pass items list --risk missing-2fa
@@ -273,10 +284,12 @@ proton pass items list --sort used --desc
 | --- | --- |
 | `--desc` | Reverse the order |
 | `--excluded` | Keep only the logins excluded from Pass Monitor |
+| `--folder string` | Match only this folder, by path or ID |
 | `--limit int` | How many items per page; 0 for all of them (default `50`) |
 | `--newer-than string` | Match items newer than DURATION |
 | `--older-than string` | Match items older than DURATION (e.g. 30d, 2w, 1h) |
 | `--page int` | Which page of results, counting from zero |
+| `--recursive` | Match the folders inside --folder too |
 | `--risk string` | Keep only the logins failing this password check: compromised, missing-2fa, reused, weak |
 | `--sort string` | Order by: name, type, modified, created, used (default `name`) |
 | `--type string` | Match only this kind of item: login, note, credit-card, wifi, ssh-key, identity, alias, custom |
@@ -284,21 +297,33 @@ proton pass items list --sort used --desc
 
 ## `move`
 
-Put an item in another vault.
+Put items in another vault or folder.
 
-The item keeps its history and everything it holds, but gets a new ID: an item in Pass is identified by its vault as well as itself. The new ID is printed on stdout.
+--into is a vault, or a folder by its path from its vault: Personal/Banking. A vault alone is its top, outside every folder. Putting items in a folder needs a paid Pass plan.
+
+Items keep their history and everything they hold. One moved to another vault gets a new ID. Each moved item's ID is printed on stdout.
 
 ```
-proton pass items move REF
+proton pass items move [REF...]
 ```
 
 ```bash
 proton pass items move github.com --into Work
+proton pass items move 'Bank Austria' --into Personal/Banking
+proton pass items move --folder Personal/Old --into Personal/Archive
 ```
 
 | Flag | Description |
 | --- | --- |
-| `--into string` | Which vault to put it in, by name or ID |
+| `--all` | Act on everything in scope, rather than a subset |
+| `--folder string` | Match only this folder, by path or ID |
+| `--into string` | Where to put them: a vault, or a folder by path or ID |
+| `--limit int` | Most items to affect; 0 for no cap (default `150`) |
+| `--newer-than string` | Match items newer than DURATION |
+| `--older-than string` | Match items older than DURATION (e.g. 30d, 2w, 1h) |
+| `--recursive` | Match the folders inside --folder too |
+| `--type string` | Match only this kind of item: login, note, credit-card, wifi, ssh-key, identity, alias, custom |
+| `--vault string` | Match only this vault, by name or ID |
 
 ## `passkeys`
 
@@ -526,14 +551,17 @@ proton pass items trash [REF...]
 ```bash
 proton pass items trash GitHub
 proton pass items trash --vault Work --older-than 1y
+proton pass items trash --folder Personal/Old --recursive
 ```
 
 | Flag | Description |
 | --- | --- |
 | `--all` | Act on everything in scope, rather than a subset |
+| `--folder string` | Match only this folder, by path or ID |
 | `--limit int` | Most items to affect; 0 for no cap (default `150`) |
 | `--newer-than string` | Match items newer than DURATION |
 | `--older-than string` | Match items older than DURATION (e.g. 30d, 2w, 1h) |
+| `--recursive` | Match the folders inside --folder too |
 | `--type string` | Match only this kind of item: login, note, credit-card, wifi, ssh-key, identity, alias, custom |
 | `--vault string` | Match only this vault, by name or ID |
 
@@ -557,6 +585,8 @@ A secret is read from a file, never from a flag value: --secret-file NAME=FILE, 
 
 --generate-password replaces the password with one it makes.
 
+--url replaces every URL the login has, and takes the rules `items create` lists: exact-host:, exact-url:, starts-with:, pattern: and never:.
+
 --attach puts a local file on the item, and needs a paid Pass plan. --detach takes one off by name or ID; it stays in the item's history.
 
 --simplelogin-note replaces the note an alias brought from SimpleLogin, and --clear-simplelogin-note removes it. That note is not end-to-end encrypted, and an alias without one is refused: --note is the encrypted one.
@@ -569,6 +599,7 @@ proton pass items update REF
 proton pass items update GitHub --secret-file password=/run/secrets/github
 proton pass items update GitHub --secret-file password=-
 proton pass items update GitHub --username roman-16 --url github.com
+proton pass items update GitHub --url github.com --url exact-url:https://github.com/login
 proton pass items update GitHub --generate-password
 proton pass items update Passport --attach ~/scans/visa.pdf --detach passport.pdf
 proton pass items update shop --display-name 'Jane R'
@@ -628,7 +659,7 @@ proton pass items update shop --clear-simplelogin-note
 | `--social-security-number string` | Replace the social security number (identity) |
 | `--ssid string` | Replace the network name (wifi) |
 | `--state string` | Replace the state (identity) |
-| `--url string` | Replace the URL (login) |
+| `--url stringArray` | Replace a URL, with a rule in front to fill it more narrowly (login, repeatable) |
 | `--username string` | Replace the username (login) |
 | `--website string` | Replace the website (identity) |
 | `--words int` | Make a passphrase of this many words instead |
