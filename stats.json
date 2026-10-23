@@ -1,17 +1,17 @@
 {
-  "updated_at": "2026-10-22T03:05:12.680686871Z",
+  "updated_at": "2026-10-23T03:09:49.070328644Z",
   "read_at": {
-    "audience": "2026-10-22T03:05:12.680686871Z",
-    "aur": "2026-10-22T03:05:12.680686871Z",
-    "counts": "2026-10-22T03:05:12.680686871Z",
-    "npm": "2026-10-22T03:05:12.680686871Z",
-    "packaging": "2026-10-22T03:05:12.680686871Z",
-    "traffic": "2026-10-22T03:05:12.680686871Z"
+    "audience": "2026-10-23T03:09:49.070328644Z",
+    "aur": "2026-10-23T03:09:49.070328644Z",
+    "counts": "2026-10-23T03:09:49.070328644Z",
+    "npm": "2026-10-23T03:09:49.070328644Z",
+    "packaging": "2026-10-23T03:09:49.070328644Z",
+    "traffic": "2026-10-23T03:09:49.070328644Z"
   },
   "totals": {
-    "downloads": 8708,
+    "downloads": 8828,
     "stars": 104,
-    "forks": 12,
+    "forks": 13,
     "latest": "5.1.0"
   },
   "downloads": [
@@ -2423,6 +2423,63 @@
         "5.0.1": 22,
         "5.1.0": 28
       }
+    },
+    {
+      "date": "2026-10-22",
+      "hours": 24.0767749004925,
+      "binary": 40,
+      "packaged": 80,
+      "platform": {
+        "darwin_amd64": 1,
+        "darwin_arm64": 2,
+        "linux_amd64": 38,
+        "linux_arm64": 1,
+        "windows_amd64": 49,
+        "windows_arm64": 29
+      },
+      "version": {
+        "1.10.0": 1,
+        "1.11.0": 1,
+        "1.9.10": 1,
+        "1.9.11": 1,
+        "1.9.12": 1,
+        "1.9.13": 1,
+        "1.9.9": 1,
+        "2.0.0": 1,
+        "2.1.0": 1,
+        "2.1.1": 1,
+        "2.10.0": 2,
+        "2.2.0": 1,
+        "2.2.1": 1,
+        "2.2.2": 1,
+        "2.3.0": 1,
+        "2.4.0": 1,
+        "2.4.1": 1,
+        "2.5.0": 2,
+        "2.6.0": 2,
+        "2.7.0": 2,
+        "2.8.0": 2,
+        "2.9.0": 2,
+        "3.0.0": 2,
+        "3.1.0": 2,
+        "3.2.0": 2,
+        "3.3.0": 2,
+        "3.3.1": 2,
+        "3.4.0": 2,
+        "3.5.0": 2,
+        "3.6.0": 2,
+        "3.7.0": 2,
+        "3.8.0": 2,
+        "4.0.0": 2,
+        "4.1.0": 2,
+        "4.2.0": 4,
+        "4.2.1": 2,
+        "4.2.2": 2,
+        "4.2.3": 2,
+        "4.3.0": 2,
+        "5.0.1": 33,
+        "5.1.0": 23
+      }
     }
   ],
   "traffic": [
@@ -2873,13 +2930,20 @@
       "cloners": 27,
       "views": 2,
       "visitors": 2
+    },
+    {
+      "date": "2026-10-21",
+      "clones": 775,
+      "cloners": 90,
+      "views": 1,
+      "visitors": 1
     }
   ],
   "traffic_window": {
-    "clones": 701,
-    "cloners": 260,
-    "views": 240,
-    "visitors": 82
+    "clones": 1437,
+    "cloners": 321,
+    "views": 230,
+    "visitors": 76
   },
   "stars": [
     {
@@ -3641,6 +3705,10 @@
     {
       "date": "2026-10-22",
       "count": 104
+    },
+    {
+      "date": "2026-10-23",
+      "count": 104
     }
   ],
   "forks": [
@@ -4147,6 +4215,10 @@
     {
       "date": "2026-10-22",
       "count": 12
+    },
+    {
+      "date": "2026-10-23",
+      "count": 13
     }
   ],
   "npm": [
@@ -5326,8 +5398,8 @@
   "referrers": [
     {
       "name": "Google",
-      "count": 29,
-      "uniques": 23
+      "count": 22,
+      "uniques": 19
     },
     {
       "name": "proton-cli.lerchster.dev",
@@ -5378,8 +5450,8 @@
   "paths": [
     {
       "name": "/roman-16/proton-cli",
-      "count": 70,
-      "uniques": 57
+      "count": 63,
+      "uniques": 53
     },
     {
       "name": "/roman-16/proton-cli/tree/main",
@@ -5388,17 +5460,12 @@
     },
     {
       "name": "/roman-16/proton-cli/blob/main/docs/pass/pass.md",
-      "count": 8,
-      "uniques": 5
+      "count": 7,
+      "uniques": 4
     },
     {
       "name": "/roman-16/proton-cli/issues",
       "count": 5,
-      "uniques": 3
-    },
-    {
-      "name": "/roman-16/proton-cli/blob/main/docs/calendar/README.md",
-      "count": 3,
       "uniques": 3
     },
     {
@@ -5425,6 +5492,11 @@
       "name": "/roman-16/proton-cli/blob/main/AGENTS.md",
       "count": 2,
       "uniques": 2
+    },
+    {
+      "name": "/roman-16/proton-cli/blob/main/devbox.json",
+      "count": 2,
+      "uniques": 2
     }
   ],
   "packaging": [
@@ -5439,6 +5511,6 @@
   ],
   "aur": {
     "votes": 1,
-    "popularity": 0.566307
+    "popularity": 0.491002
   }
 }
