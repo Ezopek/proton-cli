@@ -58,7 +58,19 @@ Contradiction check:
 
 No live contradiction remains.
 
-## Applied
+## Current placement (supersedes the "appended after the coordinator block" placement recorded below)
+
+The coordinator's installed integrity check hashes its own block from its begin marker to the **end of the file**, and requires its end marker plus a newline to be the last bytes. A block appended after it breaks that check, and the coordinator's own readiness report reflects it. The ordering that interoperates, and the one now in force, is:
+
+1. the unchanged Upstream text of `AGENTS.md`;
+2. the native `bmad:context` block;
+3. the installer's `bmad-coordinator` block, byte-exact, last, ending the file.
+
+The move was mechanical. Both blocks' text and the Upstream prefix are unchanged, and no wording was rewritten. `FORK.md` › Fork-only development governance states the same placement. This note changes no release, publishing, branch, module or authority rule. The "Applied" table below is the historical record of the earlier pass. It really did append the block after the coordinator block, and its byte-count checks describe that earlier layout. They are kept as written and are not valid for the current file.
+
+**Maintenance consequence:** on every refresh or Upstream rebase, insert the context block **before** the coordinator block, and never after it. Do not edit the coordinator block.
+
+## Applied (historical: earlier placement, superseded above)
 
 | File | Change | Verification (self-check) |
 |---|---|---|
@@ -68,17 +80,17 @@ No live contradiction remains.
 
 Every file and command the block names was path-checked or verified against its source: `FORK.md`, `CHANGELOG.md`, `devbox.lock` (Go 1.27.0, golangci-lint 2.13.1), `.goreleaser.yaml`, `.github/workflows/`, `_bmad-output/project-knowledge/index.md`, `workflows-and-release-inventory.md`, `adoption-assessment.md` and `_bmad-output/NATIVE-BMAD-NEXT.md`. The `just` recipes `lint`, `test-fast`, `snapshot` and `build` are at `justfile:49-62,181-185,145-151,1-3`, and `just build` has no ldflags.
 
-**Not verified:**
+**Loading status (updated from controller evidence):**
 
-- Whether Claude Code actually expands `@FORK.md` and `@AGENTS.md` from `CLAUDE.md` in a **fresh** session. This session started before the file existed.
-- Whether Codex loads `AGENTS.md`, and so the block, in this repository.
+- **Claude Code: verified, scoped.** A fresh no-tools Claude session reported, from its initial context alone, that it had loaded both `FORK.md` and `AGENTS.md` and that `FORK.md` takes precedence. This is a scoped pass for Claude Code only. It does not establish behavior on every question; for example, an answer about the changelog was qualified rather than a blanket pass.
+- **Codex: unverified.** Whether Codex loads `AGENTS.md`, and so the block, in this repository has not been checked.
 
-The skill requires loading to be verified for every harness in use, so both remain an acceptance gate for the controller.
+The skill requires loading to be verified for every harness in use, so the Codex check remains an acceptance gate for the controller. The coordinator's readiness report was **not ready** after the first commit because of the placement problem above. It must be re-run after the repair is committed; readiness is not claimed here.
 
 ## Close
 
 - **What went in:** a routing-only policy section pointing at `FORK.md`, two pointers to the knowledge folder, and two verified run caveats (the locked tool versions; `just build` reports `dev`).
 - **What stayed out:** every fork rule itself (it lives in `FORK.md`), anything Upstream's `AGENTS.md` and `CONTRIBUTING.md` already state, and unobserved pitfalls.
-- **Loading:** `CLAUDE.md` imports `FORK.md` first, so fork precedence reaches Claude Code before the Upstream text. Codex reads `AGENTS.md` directly, and the block's first policy line routes it to `FORK.md`.
-- **Submitting:** the changes are uncommitted on `ezop`. They belong only in the `ezop` lineage or a PR branch into it, never on `main` or `patch/*`. This pass made no commits.
-- **Maintenance:** re-run `refresh` after the #1 merge (new workflow file and commands) and after each Upstream rebase, which must keep the Upstream prefix byte-identical and re-append the coordinator and context blocks. Use `record` the moment an agent gets something wrong.
+- **Loading:** `CLAUDE.md` imports `FORK.md` first, so fork precedence reaches Claude Code before the Upstream text (verified for Claude Code, scoped). Codex reads `AGENTS.md` directly, and the block's first policy line routes it to `FORK.md` (not yet verified).
+- **Submitting:** the changes belong only in the `ezop` lineage or a PR branch into it, never on `main` or `patch/*`. The original completion pass made no commits.
+- **Maintenance:** re-run `refresh` after the #1 merge (new workflow file and commands) and after each Upstream rebase. A rebase must keep the Upstream prefix byte-identical, put the context block before the coordinator block, and leave the coordinator block last (see Current placement). Use `record` the moment an agent gets something wrong.

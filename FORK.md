@@ -75,9 +75,10 @@ lineage (including working branches opened as pull requests to `ezop`), never on
 `main` or upstream-contribution `patch/*` branches. Their generated instructions,
 project artifacts and the installer's managed opt-in block appended to `AGENTS.md`
 are fork-only additions; the preceding Upstream guidelines remain unchanged.
-The same holds for the native `bmad-project-context` block appended after the
-coordinator block, and for a fork-only `CLAUDE.md` that only imports `FORK.md`
-and then `AGENTS.md`. Those blocks and that adapter are operational instructions
+The same holds for the native `bmad-project-context` block, which belongs after
+the unchanged Upstream text and before the installer's coordinator block (the
+coordinator block's exact bytes stay last, ending the file), and for a fork-only
+`CLAUDE.md` that only imports `FORK.md` and then `AGENTS.md`. Those blocks and that adapter are operational instructions
 and derived pointers, not fork policy: this file stays the only source of fork
 policy and wins wherever they disagree with it.
 `FORK.md` takes precedence wherever Upstream's changelog-driven release process
