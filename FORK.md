@@ -68,6 +68,23 @@ Deletion and rebase are separate rulesets on purpose: the rebase bypass lets the
 
 Rulesets cannot tell the human owner from automation using the same owner's account. They also do not by themselves enforce that `main` holds only Upstream content, that `ezop` is updated only through PRs, or the whole boundary for enabling Actions in the future.
 
+### Fork-only development governance
+
+BMAD Method and the portable BMAD coordinator are installed only in the `ezop`
+lineage (including working branches opened as pull requests to `ezop`), never on
+`main` or upstream-contribution `patch/*` branches. Their generated instructions,
+project artifacts and the installer's managed opt-in block appended to `AGENTS.md`
+are fork-only additions; the preceding Upstream guidelines remain unchanged.
+The same holds for the native `bmad-project-context` block appended after the
+coordinator block, and for a fork-only `CLAUDE.md` that only imports `FORK.md`
+and then `AGENTS.md`. Those blocks and that adapter are operational instructions
+and derived pointers, not fork policy: this file stays the only source of fork
+policy and wins wherever they disagree with it.
+`FORK.md` takes precedence wherever Upstream's changelog-driven release process
+conflicts with the fork's tag-driven release rules below. Do not run Upstream's
+multi-account live suite for fork bootstrap work: its credentials and mutation
+scope are not authorized by a `calendar-dev` / `MCP Test` smoke-test permission.
+
 ## Versions and tags
 
 - **Version string:** `X.Y.Z-ezop.N`, set through ldflags. `X.Y.Z` is the Upstream release the branch is based on, and `N` counts fork releases on that base, starting at 1.

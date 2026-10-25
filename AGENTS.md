@@ -118,3 +118,36 @@ If a clone is missing or stale, run:
 ```bash
 just sources
 ```
+<!-- bmad-coordinator:begin v1 -->
+## Portable BMAD coordinator opt-in
+
+For a substantial request, first inspect this repository and its installed BMAD instructions, then identify the intended outcome, authority, scope, exclusions, and a concrete Git base commit. Use the installed coordinator CLI at `.bmad-coordinator/run.py` to inspect state and record a mandate before assigning bounded work. A small direct request may be handled directly. The coordinator tracks state and evidence; its presence does not automatically launch workers or prove review.
+
+If an assignment explicitly gives you `role: worker` or `role: reviewer`, follow that frozen assignment and its permitted paths. Do not perform top-level intake or claim coordinator ownership from inside that assignment. You may use bounded nested investigation or review when the mandate and run budget permit it. Return evidence and unresolved questions honestly; a self-report is not independent review or proof of effective permissions.
+
+Use `python3 .bmad-coordinator/run.py --repo /absolute/worktree status` to inspect state. For a feature worktree, record the resolved base commit at creation and run `doctor --base COMMIT` before execution. A moving branch name is not a substitute for that concrete commit.
+<!-- bmad-coordinator:end v1 -->
+
+<!-- bmad:context -->
+<!-- Verified 2026-10-25 against dfa2c1dfcd7de0025f85b73b3968f23d05c96ae9. Managed by bmad-project-context; edits inside this block are replaced on refresh. Keep anything you want preserved outside the markers. -->
+
+## proton-cli (Ezopek fork)
+
+Fork of Upstream proton-cli (Go, cobra, GoReleaser) that supplies the Backend binary for `Ezopek/ezop-proton-calendar-mcp`. `FORK.md` is the only source of fork policy; on `ezop` it overrides the Upstream release text above, and this block only routes to it. As-is knowledge lives in `_bmad-output/project-knowledge/` (start at `index.md`); the planned BMAD phases are in `_bmad-output/NATIVE-BMAD-NEXT.md`.
+
+## Policy
+
+- Before any branch, tag, release, workflow, `CHANGELOG.md` or BMAD-file change, read `FORK.md` and follow it wherever it differs from the Upstream text above; leave that Upstream text unedited.
+- Write a new fork rule in `FORK.md`, never in this block or the coordinator block, which only point to it.
+
+## Where things are
+
+- Release surface and its hazards: `.goreleaser.yaml`, `.github/workflows/`; inventory in `_bmad-output/project-knowledge/workflows-and-release-inventory.md`.
+- Open fork decisions (Actions activation, OpenAPI drift guard): `_bmad-output/project-knowledge/adoption-assessment.md`.
+
+## Running and verifying
+
+- Run `just lint` and `just test-fast` with the versions pinned in `devbox.lock` (Go 1.27.0, golangci-lint 2.13.1) through `devbox shell` or `devbox run`; newer Go or golangci-lint fail `just lint` on unchanged code.
+- Check the fork version string on a GoReleaser artifact (`just snapshot` or a release), not on `just build`, which passes no ldflags and reports `dev`.
+
+<!-- /bmad:context -->
