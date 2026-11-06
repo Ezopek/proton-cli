@@ -6,6 +6,7 @@ import (
 	"os"
 	"runtime/debug"
 	"strings"
+	"time"
 )
 
 // guardUsage is the one-line message for a malformed guard command line.
@@ -35,6 +36,9 @@ type guardDeps struct {
 	// runProgram runs a program and answers its standard output; nil means the
 	// real execution (execProgram). Only stamp uses it.
 	runProgram func(path string, args, env []string) ([]byte, error)
+	// clock answers the current time for the record verify prints; nil means the
+	// real clock.
+	clock func() time.Time
 }
 
 // productionDeps is the real git adapter over the working directory, the
@@ -48,6 +52,7 @@ func productionDeps() guardDeps {
 		stderr:  os.Stderr,
 		getenv:  os.Getenv,
 		gh:      execGH{},
+		clock:   time.Now,
 	}
 }
 
@@ -67,6 +72,8 @@ func run(args []string, d guardDeps) int {
 		return runInRunCommand(args, d, runAssets)
 	case "stamp":
 		return runInRunCommand(args, d, runStamp)
+	case "verify":
+		return runVerify(args[1:], d)
 	}
 	_, _ = fmt.Fprintln(d.stderr, "fork-release: unknown command")
 	return exitUsage
@@ -91,6 +98,48 @@ func profilePaths(profile string) []string {
 		return []string{goreleaserPath, githubDir}
 	}
 	return []string{githubDir}
+}
+
+// helperIdentity is the sequence every Operator-side command begins with, before
+// it reads anything else: the origin remote, the helper's own build identity,
+// one fetch of origin ezop, and that the helper's commit is that tip or an
+// ancestor of it. It answers the helper's commit and the fetched tip. Its order
+// and its messages are fixed: origin (every fetch and push URL), the build, the
+// fetch, the ancestry.
+func helperIdentity(d guardDeps) (helper, tip string, err error) {
+	fetchURLs, err := d.git.OriginURLs(false)
+	if err != nil {
+		return "", "", refusal{"origin", "origin is not configured or cannot be read"}
+	}
+	pushURLs, err := d.git.OriginURLs(true)
+	if err != nil {
+		return "", "", refusal{"origin", "origin is not configured or cannot be read"}
+	}
+	if err := originURLsOK(fetchURLs, pushURLs, d.origins); err != nil {
+		return "", "", err
+	}
+
+	info, ok := d.build()
+	if !ok {
+		info = nil
+	}
+	helper, err = buildIdentity(info)
+	if err != nil {
+		return "", "", err
+	}
+
+	tip, err = d.git.FetchEzop()
+	if err != nil || !fullSHA.MatchString(tip) {
+		return "", "", refusal{"fetch", "could not fetch origin ezop"}
+	}
+	status, err := d.git.IsAncestor(helper, tip)
+	if err != nil {
+		status = -1
+	}
+	if err := ancestryDecision(status); err != nil {
+		return "", "", err
+	}
+	return helper, tip, nil
 }
 
 // runGuard is guard --profile release|mirror COMMIT, or one of the two in-run
@@ -118,36 +167,7 @@ func runGuard(args []string, d guardDeps) int {
 		return exitHeld
 	}
 
-	fetchURLs, err := d.git.OriginURLs(false)
-	if err != nil {
-		return refuse(refusal{"origin", "origin is not configured or cannot be read"})
-	}
-	pushURLs, err := d.git.OriginURLs(true)
-	if err != nil {
-		return refuse(refusal{"origin", "origin is not configured or cannot be read"})
-	}
-	if err := originURLsOK(fetchURLs, pushURLs, d.origins); err != nil {
-		return refuse(err)
-	}
-
-	info, ok := d.build()
-	if !ok {
-		info = nil
-	}
-	helper, err := buildIdentity(info)
-	if err != nil {
-		return refuse(err)
-	}
-
-	tip, err := d.git.FetchEzop()
-	if err != nil || !fullSHA.MatchString(tip) {
-		return refuse(refusal{"fetch", "could not fetch origin ezop"})
-	}
-	status, err := d.git.IsAncestor(helper, tip)
-	if err != nil {
-		status = -1
-	}
-	if err := ancestryDecision(status); err != nil {
+	if _, _, err := helperIdentity(d); err != nil {
 		return refuse(err)
 	}
 

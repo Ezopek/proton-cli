@@ -67,6 +67,11 @@ func (s releaseState) String() string {
 // a closed set of words. The reason never holds a response, a URL or a name
 // from the answer.
 //
+// For Published-Same it also carries the Run line of the notes: RunValue is the
+// raw rest of the line (of the last such line when there are several) and
+// RunValid is true only when exactly one such line was found and it reads as
+// <run_id>/<run_attempt>. The state does not depend on either.
+//
 // For Published-Same it also carries the release's assets. The asset list is
 // read by assets and stamp only, so a list that cannot be trusted never changes
 // the state: it leaves Assets empty and AssetsReason set, from the same closed
@@ -76,6 +81,8 @@ type releaseLookup struct {
 	Reason       string
 	Assets       []releaseAsset
 	AssetsReason string
+	RunValue     string
+	RunValid     bool
 }
 
 // releaseAsset is one entry of a release's asset list: its name, its id (which
@@ -178,7 +185,9 @@ func classifyRelease(matches []map[string]any, e string) releaseLookup {
 	body, _ := entry["body"].(string)
 	if sha, ok := parseCommitLine(body); ok && sha == e {
 		assets, reason := parseAssets(entry)
-		return releaseLookup{State: releasePublishedSame, Assets: assets, AssetsReason: reason}
+		runValue, _ := lineValue(body, runLinePrefix)
+		_, _, runValid := parseRunLine(body)
+		return releaseLookup{State: releasePublishedSame, Assets: assets, AssetsReason: reason, RunValue: runValue, RunValid: runValid}
 	}
 	return releaseLookup{State: releaseOther}
 }

@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 11-05-2026 23:47
-last_updated: 11-06-2026 21:00
+last_updated: 11-06-2026 22:51
 project: proton-cli
 project_key: NOKEY
 tracking_system: file-system
@@ -42,7 +42,7 @@ development_status:
   1-4-the-verification-record-surface-exists-and-is-checked: review
   1-5-a-repeat-run-is-refused-fail-closed: review
   1-6-release-notes-in-run-asset-check-and-stamping-check: review
-  1-7-the-operator-can-verify-a-release-and-read-its-status: backlog
+  1-7-the-operator-can-verify-a-release-and-read-its-status: review
   1-8-a-tag-is-pushed-only-after-guard-pre-push: backlog
   1-9-the-fork-release-workflow-turns-a-tag-into-a-fork-release: backlog
   1-10-the-activation-runbook-is-written-for-options-a-and-b: backlog

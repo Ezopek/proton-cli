@@ -81,12 +81,21 @@ type ghGetter interface {
 }
 
 // endpointPattern is every path the lookups may ask for: the tip of ezop, a
-// commit, a tree or a blob by a full lowercase SHA, and a page 1 to 50 of the
-// releases list at 100 a page, in that one spelling. Any other query string, a
-// dot segment or any other name never matches.
+// commit, a tree or a blob by a full lowercase SHA, a page 1 to 50 of the
+// releases list at 100 a page, and the four run reads (the workflow of
+// fork-release.yml by file name, the runs of that workflow for one commit and
+// the push event at 100 a page and a page 1 to 10, a run by id, and a run
+// attempt by id and number), each in that one spelling. Digits are bounded: an
+// id has at most 16, an attempt number at most 6, neither has a sign or a
+// leading zero. Any other query string, a dot segment or any other name never
+// matches.
 var endpointPattern = regexp.MustCompile(`^(git/ref/heads/` + ezopBranch +
 	`|git/(commits|trees|blobs)/[0-9a-f]{40}` +
-	`|releases\?per_page=100&page=([1-9]|[1-4][0-9]|50))$`)
+	`|releases\?per_page=100&page=([1-9]|[1-4][0-9]|50)` +
+	`|actions/workflows/` + regexp.QuoteMeta(forkRelease) +
+	`|actions/workflows/` + regexp.QuoteMeta(forkRelease) + `/runs\?event=push&head_sha=[0-9a-f]{40}&per_page=100&page=([1-9]|10)` +
+	`|actions/runs/[1-9][0-9]{0,15}` +
+	`|actions/runs/[1-9][0-9]{0,15}/attempts/[1-9][0-9]{0,5})$`)
 
 // ghArgs is the exact argument list of a gh call. A path that is not one of the
 // validated shapes is refused here, before gh is run.
