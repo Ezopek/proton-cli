@@ -124,6 +124,11 @@ func (f *fakeGit) Blob(oid string) ([]byte, error) {
 	return data, nil
 }
 
+func (f *fakeGit) OriginTags() (map[string]string, error) {
+	f.calls = append(f.calls, "origin tags")
+	return nil, errors.New("not served by this fake")
+}
+
 func cleanBuild() (*debug.BuildInfo, bool) {
 	return settings("vcs.revision", helperSHA, "vcs.modified", "false"), true
 }

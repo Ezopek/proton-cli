@@ -806,3 +806,144 @@ func TestExecGitExecutableModeIsSetInTheIndex(t *testing.T) {
 		})
 	}
 }
+
+// originTagsFixture is a bare origin and a work repository that has it as
+// origin, with one commit pushed as ezop.
+func originTagsFixture(t *testing.T) (work *scratch, bare, first string) {
+	t.Helper()
+	bare = newBare(t)
+	work = newScratch(t)
+	work.write("a.txt", "a")
+	first = work.commit("one")
+	work.git("branch", "-m", "ezop")
+	work.git("remote", "add", "origin", bare)
+	work.git("push", "-q", "origin", "ezop")
+	return work, bare, first
+}
+
+func TestExecGitOriginTags(t *testing.T) {
+	t.Run("lists lightweight, annotated and nested annotated tags by their commits", func(t *testing.T) {
+		work, _, first := originTagsFixture(t)
+		work.write("a.txt", "b")
+		second := work.commit("two")
+		work.git("tag", "light", first)
+		work.git("tag", "-a", "-m", "annotated", "annotated", second)
+		work.git("tag", "-a", "-m", "nested", "nested", "annotated")
+		work.git("push", "-q", "origin", "--tags")
+		// The annotated tags name tag objects, not commits: control.
+		if obj := work.git("rev-parse", "annotated"); obj == second {
+			t.Fatal("control: an annotated tag object has the commit's id")
+		}
+		got, err := work.adapter().OriginTags()
+		want := map[string]string{"light": first, "annotated": second, "nested": second}
+		if err != nil || !reflect.DeepEqual(got, want) {
+			t.Fatalf("got %v, %v; want %v", got, err, want)
+		}
+	})
+	t.Run("no tags is an empty answer, not an error", func(t *testing.T) {
+		work, _, _ := originTagsFixture(t)
+		got, err := work.adapter().OriginTags()
+		if err != nil || len(got) != 0 {
+			t.Fatalf("got %v, %v", got, err)
+		}
+	})
+	t.Run("tags that exist only locally are not listed", func(t *testing.T) {
+		work, _, first := originTagsFixture(t)
+		work.git("tag", "pushed", first)
+		work.git("push", "-q", "origin", "refs/tags/pushed")
+		work.git("tag", "local-only", first)
+		work.git("tag", "-a", "-m", "local", "local-annotated", first)
+		got, err := work.adapter().OriginTags()
+		if err != nil || !reflect.DeepEqual(got, map[string]string{"pushed": first}) {
+			t.Fatalf("got %v, %v", got, err)
+		}
+	})
+	t.Run("a tag moved on origin is read as it is on origin", func(t *testing.T) {
+		work, bare, first := originTagsFixture(t)
+		work.write("a.txt", "b")
+		second := work.commit("two")
+		work.git("tag", "moving", first)
+		work.git("push", "-q", "origin", "refs/tags/moving", "ezop:refs/heads/other")
+		remote := &scratch{t: t, dir: bare, env: work.env}
+		remote.git("update-ref", "refs/tags/moving", second)
+		got, err := work.adapter().OriginTags()
+		if err != nil || got["moving"] != second {
+			t.Fatalf("got %v, %v; want %s", got, err, second)
+		}
+	})
+	t.Run("writes no local ref", func(t *testing.T) {
+		work, _, first := originTagsFixture(t)
+		work.git("tag", "pushed", first)
+		work.git("push", "-q", "origin", "refs/tags/pushed")
+		work.git("tag", "-d", "pushed")
+		before := work.git("for-each-ref")
+		if _, err := work.adapter().OriginTags(); err != nil {
+			t.Fatal(err)
+		}
+		if after := work.git("for-each-ref"); after != before {
+			t.Fatalf("refs changed:\n%s\n--\n%s", before, after)
+		}
+	})
+	t.Run("a remote that does not exist fails without printing it", func(t *testing.T) {
+		work := newScratch(t)
+		work.git("remote", "add", "origin", filepath.Join(t.TempDir(), "no-such-remote.git"))
+		got, err := work.adapter().OriginTags()
+		if err == nil || got != nil || strings.Contains(err.Error(), "no-such-remote") {
+			t.Fatalf("got %v, %v", got, err)
+		}
+	})
+	t.Run("no origin at all fails, even with a directory named origin", func(t *testing.T) {
+		work := newScratch(t)
+		work.git("init", "-q", "--bare", "-b", "main", "origin")
+		got, err := work.adapter().OriginTags()
+		if err == nil || got != nil {
+			t.Fatalf("got %v, %v", got, err)
+		}
+	})
+}
+
+func TestParseOriginTags(t *testing.T) {
+	const (
+		a = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		b = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	)
+	ok := map[string]struct {
+		in   string
+		want map[string]string
+	}{
+		"empty":               {"", map[string]string{}},
+		"lightweight":         {a + "\trefs/tags/v1\n", map[string]string{"v1": a}},
+		"peeled line wins":    {a + "\trefs/tags/v1\n" + b + "\trefs/tags/v1^{}\n", map[string]string{"v1": b}},
+		"peeled line first":   {b + "\trefs/tags/v1^{}\n" + a + "\trefs/tags/v1\n", map[string]string{"v1": b}},
+		"no trailing newline": {a + "\trefs/tags/v1", map[string]string{"v1": a}},
+		"a slash in the name": {a + "\trefs/tags/x/y\n", map[string]string{"x/y": a}},
+	}
+	for name, tc := range ok {
+		t.Run(name, func(t *testing.T) {
+			got, err := parseOriginTags([]byte(tc.in))
+			if err != nil || !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("got %v, %v; want %v", got, err, tc.want)
+			}
+		})
+	}
+	bad := map[string]string{
+		"not a full SHA":      "abc\trefs/tags/v1\n",
+		"upper case SHA":      strings.ToUpper(a) + "\trefs/tags/v1\n",
+		"no tab":              a + " refs/tags/v1\n",
+		"not under tags":      a + "\trefs/heads/v1\n",
+		"empty name":          a + "\trefs/tags/\n",
+		"empty peeled name":   a + "\trefs/tags/^{}\n",
+		"a tag listed twice":  a + "\trefs/tags/v1\n" + b + "\trefs/tags/v1\n",
+		"a peel listed twice": a + "\trefs/tags/v1\n" + a + "\trefs/tags/v1^{}\n" + b + "\trefs/tags/v1^{}\n",
+		"a peel with no tag":  a + "\trefs/tags/v1^{}\n",
+		"a blank line":        a + "\trefs/tags/v1\n\n",
+		"carriage return":     a + "\trefs/tags/v1\r\n",
+	}
+	for name, in := range bad {
+		t.Run("refuses "+name, func(t *testing.T) {
+			if got, err := parseOriginTags([]byte(in)); err == nil || got != nil {
+				t.Fatalf("got %v, %v", got, err)
+			}
+		})
+	}
+}

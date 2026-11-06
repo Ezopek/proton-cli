@@ -43,6 +43,10 @@ type gitRepo interface {
 	Tree(commit string, paths []string) ([]treeEntry, error)
 	// Blob returns the content of a blob.
 	Blob(oid string) ([]byte, error)
+	// OriginTags lists the tags of origin as the remote has them now, by name
+	// without refs/tags/, each with the commit or object it names, peeled. It
+	// writes no local ref.
+	OriginTags() (map[string]string, error)
 }
 
 // execGit is the git adapter over the git program. It is a thin layer: it
@@ -195,6 +199,59 @@ func (g execGit) Blob(oid string) ([]byte, error) {
 		return nil, errors.New("could not read the blob")
 	}
 	return out, nil
+}
+
+// OriginTags asks origin for its tags with git ls-remote, which reads the
+// remote and writes no local ref. origin must be a configured remote: without
+// that, git would take the word as a path. Success with no line means the
+// remote has no tags.
+func (g execGit) OriginTags() (map[string]string, error) {
+	if _, err := g.OriginURLs(false); err != nil {
+		return nil, errors.New("origin is not configured or cannot be read")
+	}
+	out, status, err := g.run("ls-remote", "--tags", "origin")
+	if err != nil || status != 0 {
+		return nil, errors.New("could not list the tags of origin")
+	}
+	return parseOriginTags(out)
+}
+
+// parseOriginTags reads git ls-remote --tags output: one "<oid>\trefs/tags/<name>"
+// line per tag, and for an annotated tag a second "<name>^{}" line that carries
+// the peeled commit and wins. Anything else, a tag or a peel listed twice or a
+// peel with no tag is an error, never a guess.
+func parseOriginTags(out []byte) (map[string]string, error) {
+	bad := errors.New("unexpected tag listing from origin")
+	direct, peeled := map[string]string{}, map[string]string{}
+	text := string(out)
+	if text != "" {
+		text = strings.TrimSuffix(text, "\n")
+		for _, line := range strings.Split(text, "\n") {
+			oid, ref, ok := strings.Cut(line, "\t")
+			name, isTag := strings.CutPrefix(ref, "refs/tags/")
+			if !ok || !isTag || !fullSHA.MatchString(oid) {
+				return nil, bad
+			}
+			into := direct
+			if base, isPeel := strings.CutSuffix(name, "^{}"); isPeel {
+				name, into = base, peeled
+			}
+			if name == "" || strings.ContainsFunc(name, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
+				return nil, bad
+			}
+			if _, dup := into[name]; dup {
+				return nil, bad
+			}
+			into[name] = oid
+		}
+	}
+	for name, oid := range peeled {
+		if _, ok := direct[name]; !ok {
+			return nil, bad
+		}
+		direct[name] = oid
+	}
+	return direct, nil
 }
 
 // commitTreeFS is the view of a commit as a file system, limited to paths: its
