@@ -1,7 +1,13 @@
 package main
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -261,5 +267,261 @@ func TestCheckReleaseReusedAnchors(t *testing.T) {
 				t.Fatalf("findings:\n%s", details(got))
 			}
 		})
+	}
+}
+
+// rawBlobIDs are the git blob ids of the .github tree of the Upstream release
+// v5.1.0 (commit 03f5c254dcd96582507dec2c4418e95d49cd8c6b), keyed by path
+// under testdata/v5.1.0/github.
+var rawBlobIDs = map[string]string{
+	"workflows/ci.yml":           "8d0ee838323fee2adddfde8651ce6eefc65da17d",
+	"workflows/openapi-sync.yml": "395660f6c60f032ee42665b29467874e7a934bde",
+	"workflows/release.yml":      "df8dc81b2ac75598851affbe7dd55f57123c6d1d",
+	"workflows/stats.yml":        "cc8e74f020342a5f4480f5c7918a3b1031d1fef6",
+	"workflows/web.yml":          "d8668c4e9d2610046c0e0e098d4133f548ec9b79",
+	"ISSUE_TEMPLATE/bug.yml":     "013c3eac4d4b9fe4b0097ef8d1c99b13e037ff5c",
+	"ISSUE_TEMPLATE/config.yml":  "59451eac10c78478eeb9cdf3526f267b647d0dcb",
+	"ISSUE_TEMPLATE/feature.yml": "aca540560d87834db53be4a22622c64fe76ad7de",
+}
+
+// blobID computes the id git gives a blob: SHA-1 of "blob <size>\0<data>".
+func blobID(data []byte) string {
+	h := sha1.New()
+	h.Write([]byte("blob " + strconv.Itoa(len(data)) + "\x00"))
+	h.Write(data)
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// rawTree is the frozen raw v5.1.0 .github tree, from committed bytes only.
+func rawTree(t *testing.T) fstest.MapFS {
+	t.Helper()
+	m := fstest.MapFS{}
+	for name := range rawBlobIDs {
+		m[".github/"+name] = &fstest.MapFile{Data: fixture(t, filepath.ToSlash(filepath.Join("v5.1.0", "github", name)))}
+	}
+	return m
+}
+
+func TestRawFixtureIsByteExact(t *testing.T) {
+	if len(rawBlobIDs) != 8 {
+		t.Fatalf("the fixture lists %d files, want 8", len(rawBlobIDs))
+	}
+	for name, want := range rawBlobIDs {
+		t.Run(name, func(t *testing.T) {
+			data, err := os.ReadFile(filepath.Join("testdata", "v5.1.0", "github", filepath.FromSlash(name)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := blobID(data); got != want {
+				t.Fatalf("blob id %s, want %s: the fixture drifted from v5.1.0", got, want)
+			}
+		})
+	}
+	t.Run("no other file", func(t *testing.T) {
+		root := filepath.Join("testdata", "v5.1.0")
+		var n int
+		err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+			if err == nil && !d.IsDir() {
+				n++
+			}
+			return err
+		})
+		if err != nil || n != len(rawBlobIDs) {
+			t.Fatalf("found %d files under %s (err %v), want %d", n, root, err, len(rawBlobIDs))
+		}
+	})
+}
+
+var heldDisabledNames = []string{"release.yml", "openapi-sync.yml", "stats.yml", "web.yml"}
+
+func TestCheckMirror(t *testing.T) {
+	t.Run("the raw v5.1.0 tree passes", func(t *testing.T) {
+		if got := CheckMirror(rawTree(t)); len(got) != 0 {
+			t.Fatalf("findings:\n%s", details(got))
+		}
+	})
+	t.Run("the raw v5.1.0 tree is held by release, naming the four workflows", func(t *testing.T) {
+		got := CheckRelease(rawTree(t))
+		for _, name := range heldDisabledNames {
+			found := false
+			for _, f := range got {
+				if f.Rule == "workflow-set" && strings.HasSuffix(f.Path, "/"+name) {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("no workflow-set finding names %s:\n%s", name, details(got))
+			}
+		}
+	})
+	t.Run("the raw tree with only ci.yml passes, and a tree with no ci.yml is not held for that", func(t *testing.T) {
+		fsys := rawTree(t)
+		for _, name := range heldDisabledNames {
+			delete(fsys, ".github/workflows/"+name)
+		}
+		if got := CheckMirror(fsys); len(got) != 0 {
+			t.Fatalf("findings:\n%s", details(got))
+		}
+		delete(fsys, ".github/workflows/ci.yml")
+		if got := CheckMirror(fsys); len(got) != 0 {
+			t.Fatalf("findings:\n%s", details(got))
+		}
+	})
+	t.Run("an empty tree passes", func(t *testing.T) {
+		if got := CheckMirror(fstest.MapFS{}); len(got) != 0 {
+			t.Fatalf("findings:\n%s", details(got))
+		}
+	})
+	t.Run("the cleaned fork tree passes mirror when it has no fork-release.yml", func(t *testing.T) {
+		if got := CheckMirror(cleanTree(t)); len(got) != 0 {
+			t.Fatalf("findings:\n%s", details(got))
+		}
+	})
+	t.Run("an ezop-derived tree with fork-release.yml is held", func(t *testing.T) {
+		fsys := cleanTree(t)
+		fsys[".github/workflows/fork-release.yml"] = &fstest.MapFile{Data: []byte(forkReleaseY)}
+		wantHeld(t, CheckMirror(fsys), "workflow-set", "fork-release.yml")
+		if got := CheckRelease(fsys); len(got) != 0 {
+			t.Fatalf("control: release holds the derived tree:\n%s", details(got))
+		}
+	})
+
+	mutate := func(t *testing.T, edit func(m fstest.MapFS)) []Finding {
+		t.Helper()
+		fsys := rawTree(t)
+		if got := CheckMirror(fsys); len(got) != 0 {
+			t.Fatalf("control: the raw tree is held:\n%s", details(got))
+		}
+		edit(fsys)
+		return CheckMirror(fsys)
+	}
+	set := func(path, content string) func(m fstest.MapFS) {
+		return func(m fstest.MapFS) { m[path] = &fstest.MapFile{Data: []byte(content)} }
+	}
+	ciWith := func(extra string) string {
+		return job(extra)
+	}
+
+	t.Run("a new workflow is held", func(t *testing.T) {
+		wantHeld(t, mutate(t, set(".github/workflows/new.yml", "x: 1\n")), "workflow-set", "new.yml")
+	})
+	t.Run("a local action is held", func(t *testing.T) {
+		wantHeld(t, mutate(t, set(".github/actions/x/action.yml", "name: x\n")), "github-file", "actions/x")
+	})
+	t.Run("dependabot.yml is held", func(t *testing.T) {
+		wantHeld(t, mutate(t, set(".github/dependabot.yml", "version: 2\n")), "github-file", "dependabot.yml")
+	})
+	t.Run("ci.yml with a write scope is held", func(t *testing.T) {
+		got := mutate(t, set(".github/workflows/ci.yml", ciWith("    permissions:\n      contents: write\n"+steps("run: echo hi"))))
+		wantHeld(t, got, "workflow-permissions", "ci.yml")
+	})
+	t.Run("ci.yml with secrets.X is held", func(t *testing.T) {
+		got := mutate(t, set(".github/workflows/ci.yml", ciWith(steps("run: echo hi\n        env:\n          X: ${{ secrets.X }}"))))
+		wantHeld(t, got, "workflow-secrets", "ci.yml")
+	})
+	t.Run("ci.yml with a curl step is held", func(t *testing.T) {
+		wantHeld(t, mutate(t, set(".github/workflows/ci.yml", ciWith(steps("run: curl example.test")))), "workflow-command", "curl")
+	})
+	t.Run("ci.yml with an unlisted action SHA is held", func(t *testing.T) {
+		got := mutate(t, set(".github/workflows/ci.yml", ciWith(steps("uses: actions/checkout@"+shaUnlisted))))
+		wantHeld(t, got, "workflow-action", shaUnlisted)
+	})
+	t.Run("ci.yml with a listed action passes", func(t *testing.T) {
+		got := mutate(t, set(".github/workflows/ci.yml", ciWith(steps(okAction("actions/checkout")))))
+		if len(got) != 0 {
+			t.Fatalf("findings:\n%s", details(got))
+		}
+	})
+	t.Run("ci.yml with a tag-reachable trigger is held", func(t *testing.T) {
+		src := "on:\n  push:\n    tags: ['v*']\npermissions:\n  contents: read\njobs:\n  build:\n    runs-on: ubuntu-24.04\n" + steps("run: echo hi")
+		wantHeld(t, mutate(t, set(".github/workflows/ci.yml", src)), "workflow-trigger", "ci.yml")
+	})
+	for _, name := range heldDisabledNames {
+		path := ".github/workflows/" + name
+		t.Run(name+" with a push trigger with tags is held", func(t *testing.T) {
+			got := mutate(t, set(path, "on:\n  push:\n    tags: ['v*']\n"))
+			wantHeld(t, got, "workflow-trigger", name)
+		})
+		t.Run(name+" with any content but no tag-reachable trigger passes", func(t *testing.T) {
+			src := "on:\n  push:\n    branches: [main]\npermissions: write-all\njobs:\n  x:\n    steps:\n      - run: curl ${{ secrets.X }}\n      - uses: evil/x@v1\n"
+			if got := mutate(t, set(path, src)); len(got) != 0 {
+				t.Fatalf("findings:\n%s", details(got))
+			}
+		})
+		t.Run(name+" unparseable is held", func(t *testing.T) {
+			wantHeld(t, mutate(t, set(path, "on: [push\n")), "yaml-parse", name)
+		})
+		t.Run(name+" that is not a mapping is held", func(t *testing.T) {
+			wantHeld(t, mutate(t, set(path, "- a\n")), "workflow-shape", name)
+		})
+		t.Run(name+" that is null is held", func(t *testing.T) {
+			wantHeld(t, mutate(t, set(path, "null\n")), "yaml-parse", name)
+		})
+		t.Run(name+" with a duplicate key is held", func(t *testing.T) {
+			wantHeld(t, mutate(t, set(path, "on: pull_request\non: pull_request\n")), "yaml-duplicate-key", name)
+		})
+		t.Run(name+" as a symlink is held", func(t *testing.T) {
+			got := mutate(t, func(m fstest.MapFS) {
+				m[path] = &fstest.MapFile{Data: []byte("../x"), Mode: fs.ModeSymlink}
+			})
+			wantHeld(t, got, "github-non-regular", name)
+		})
+	}
+	t.Run("a symlink in ISSUE_TEMPLATE is held", func(t *testing.T) {
+		got := mutate(t, func(m fstest.MapFS) {
+			m[".github/ISSUE_TEMPLATE/bug.yml"] = &fstest.MapFile{Data: []byte("../x"), Mode: fs.ModeSymlink}
+		})
+		wantHeld(t, got, "github-non-regular", "bug.yml")
+	})
+	t.Run("an ISSUE_TEMPLATE file of any content is inert", func(t *testing.T) {
+		got := mutate(t, set(".github/ISSUE_TEMPLATE/anything.md", "secrets.X curl ${{ }}"))
+		if len(got) != 0 {
+			t.Fatalf("findings:\n%s", details(got))
+		}
+	})
+	t.Run("findings are sorted and a verdict names them", func(t *testing.T) {
+		got := mutate(t, func(m fstest.MapFS) {
+			set(".github/workflows/z.yml", "x: 1\n")(m)
+			set(".github/dependabot.yml", "version: 2\n")(m)
+		})
+		if len(got) != 2 || !reflect.DeepEqual(got, sortFindings(got)) {
+			t.Fatalf("findings:\n%s", details(got))
+		}
+		v := verdict("mirror", got)
+		if !strings.HasPrefix(v, "mirror: held, 2 item(s)\n") {
+			t.Fatalf("verdict %q", v)
+		}
+	})
+}
+
+// recordingFS records every name opened through it.
+type recordingFS struct {
+	inner  fs.FS
+	opened *[]string
+}
+
+func (r recordingFS) Open(name string) (fs.File, error) {
+	*r.opened = append(*r.opened, name)
+	return r.inner.Open(name)
+}
+
+// The mirror profile reads only .github/. A fake file system records every
+// path it is asked for.
+func TestCheckMirrorReadsOnlyGithub(t *testing.T) {
+	inner := rawTree(t)
+	inner[".goreleaser.yaml"] = &fstest.MapFile{Data: []byte("aurs: broken: [\n")}
+	inner["go.mod"] = &fstest.MapFile{Data: []byte("module x\n")}
+	inner["docs/a.md"] = &fstest.MapFile{Data: []byte("x")}
+	var opened []string
+	if got := CheckMirror(recordingFS{inner, &opened}); len(got) != 0 {
+		t.Fatalf("findings:\n%s", details(got))
+	}
+	if len(opened) == 0 {
+		t.Fatal("nothing was read")
+	}
+	for _, name := range opened {
+		if name != ".github" && !strings.HasPrefix(name, ".github/") {
+			t.Fatalf("mirror asked for %q, outside .github", name)
+		}
 	}
 }

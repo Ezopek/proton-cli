@@ -37,19 +37,36 @@ const (
 // publisherJobs are job names no workflow may carry.
 var publisherJobs = []string{"apt-repo", "apt-deploy", "npm-publish"}
 
-// workflowRules selects the exceptions granted to fork-release.yml. The mirror
-// profile of a later story turns them off, and fork-release.yml is then not a
-// permitted workflow at all.
+// heldDisabledWorkflows are the Upstream workflows the platform keeps off in
+// this fork. The mirror profile accepts them with any content, because nothing
+// runs them, and holds only a trigger that a tag push could still reach.
+var heldDisabledWorkflows = []string{"release.yml", "openapi-sync.yml", "stats.yml", "web.yml"}
+
+// workflowRules selects the rule set for the .github/ checks. With neither
+// field set, only ci.yml may exist. allowForkRelease grants the exceptions of
+// fork-release.yml to the release profile. mirror selects the mirror profile,
+// for raw Upstream-shaped trees: fork-release.yml is then not a permitted
+// workflow at all, and the four held-disabled names are.
 type workflowRules struct {
 	allowForkRelease bool
+	mirror           bool
 }
 
 // permitted lists the workflow files that may exist.
 func (r workflowRules) permitted() []string {
-	if r.allowForkRelease {
+	switch {
+	case r.mirror:
+		return append([]string{"ci.yml"}, heldDisabledWorkflows...)
+	case r.allowForkRelease:
 		return []string{"ci.yml", forkRelease}
 	}
 	return []string{"ci.yml"}
+}
+
+// heldDisabled reports whether a permitted workflow name is one of the paths
+// the mirror profile treats as held-disabled.
+func (r workflowRules) heldDisabled(name string) bool {
+	return r.mirror && slices.Contains(heldDisabledWorkflows, name)
 }
 
 // checkWorkflows applies the .github/ rules: the file set, and the shared rules
@@ -127,8 +144,26 @@ func checkWorkflowFile(fsys fs.FS, name string, rules workflowRules) []Finding {
 		return out
 	}
 	hold := func(rule, detail string) { out = append(out, Finding{p, rule, detail}) }
+	if rules.heldDisabled(name) {
+		checkHeldDisabled(value, hold)
+		return out
+	}
 	checkWorkflow(value, rules.allowForkRelease && name == forkRelease, hold)
 	return out
+}
+
+// checkHeldDisabled judges a workflow whose path is disabled on the platform.
+// The enabled-workflow rules do not apply, since it cannot run. Only the
+// trigger rule does: a tag push could start it if the path were ever enabled
+// or restored, so no tag-reachable trigger is allowed. A file whose root is not
+// a mapping cannot be judged and is held.
+func checkHeldDisabled(value any, hold func(rule, detail string)) {
+	root, ok := value.(map[string]any)
+	if !ok {
+		hold(ruleWorkflowShape, "the workflow is not a mapping")
+		return
+	}
+	checkTrigger(root, false, hold)
 }
 
 // checkWorkflow applies the shared enabled-workflow rules to one parsed

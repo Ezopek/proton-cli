@@ -1,0 +1,3 @@
+# The raw v5.1.0 workflow fixtures are pinned by git blob id, so their bytes must
+# stay exactly as committed whatever core.autocrlf or eol setting a checkout uses.
+v5.1.0/github/** -text

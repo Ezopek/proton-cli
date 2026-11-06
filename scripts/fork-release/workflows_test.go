@@ -609,3 +609,139 @@ func TestCheckWorkflowsReusedAnchor(t *testing.T) {
 		}
 	})
 }
+
+var mirrorRules = workflowRules{mirror: true}
+
+func TestCheckWorkflowsMirror(t *testing.T) {
+	ci := string(fixture(t, "ci.yml"))
+	heldDisabled := []string{"release.yml", "openapi-sync.yml", "stats.yml", "web.yml"}
+
+	t.Run("the permitted set is ci.yml and the four held-disabled names", func(t *testing.T) {
+		got := mirrorRules.permitted()
+		for _, name := range append([]string{"ci.yml"}, heldDisabled...) {
+			if !slices.Contains(got, name) {
+				t.Fatalf("%s is not permitted: %v", name, got)
+			}
+		}
+		if slices.Contains(got, forkRelease) {
+			t.Fatalf("%s is permitted by mirror: %v", forkRelease, got)
+		}
+		if rel := releaseRules.permitted(); slices.Contains(rel, "web.yml") {
+			t.Fatalf("release permits web.yml: %v", rel)
+		}
+	})
+
+	t.Run("pass ci.yml with the four held-disabled paths", func(t *testing.T) {
+		files := map[string]string{"ci.yml": ci}
+		for _, name := range heldDisabled {
+			files[name] = "on:\n  workflow_dispatch:\n"
+		}
+		if fs := checkWorkflows(wfTree(files), mirrorRules); len(fs) != 0 {
+			t.Fatalf("findings:\n%s", details(fs))
+		}
+	})
+	t.Run("held fork-release.yml", func(t *testing.T) {
+		wantHeld(t, checkWorkflows(wfTree(map[string]string{"fork-release.yml": forkReleaseY}), mirrorRules), "workflow-set", "fork-release.yml")
+	})
+	t.Run("held other workflow names", func(t *testing.T) {
+		for _, name := range []string{"new.yml", "Release.yml", "web.yaml", "release.yml.bak"} {
+			wantHeld(t, checkWorkflows(wfTree(map[string]string{name: "on: pull_request\n"}), mirrorRules), "workflow-set", name)
+		}
+		wantHeld(t, checkWorkflows(wfTree(map[string]string{".github/workflows/sub/web.yml": "on: pull_request\n"}), mirrorRules), "workflow-set", "sub/web.yml")
+	})
+	t.Run("a held-disabled name is not judged by the enabled rules", func(t *testing.T) {
+		// Without a permissions block, with a write scope, an unlisted action
+		// and curl: none of that matters for a path that is held disabled.
+		src := "on: pull_request\njobs:\n  x:\n    permissions: write-all\n    steps:\n      - uses: a/b@v1\n      - run: curl ${{ secrets.X }}\n"
+		for _, name := range heldDisabled {
+			if fs := checkWorkflows(wfTree(map[string]string{name: src}), mirrorRules); len(fs) != 0 {
+				t.Fatalf("%s:\n%s", name, details(fs))
+			}
+		}
+	})
+	t.Run("the same content is held under the release rules, as an unlisted name", func(t *testing.T) {
+		wantHeld(t, checkWorkflows(wfTree(map[string]string{"web.yml": "on: pull_request\n"}), releaseRules), "workflow-set", "web.yml")
+	})
+	t.Run("ci.yml is judged by the enabled rules", func(t *testing.T) {
+		wantHeld(t, checkWorkflows(wfTree(map[string]string{"ci.yml": job(steps("run: curl x"))}), mirrorRules), "workflow-command")
+		wantHeld(t, checkWorkflows(wfTree(map[string]string{"ci.yml": "on: pull_request\n"}), mirrorRules), "workflow-permissions")
+	})
+
+	// Triggers: the shared rule holds every tag-reachable shape in a
+	// held-disabled file.
+	tagReachable := map[string]string{
+		"push tags":         "on:\n  push:\n    tags: ['v*']\n",
+		"push tags-ignore":  "on:\n  push:\n    tags-ignore: ['v*']\n",
+		"push scalar":       "on: push\n",
+		"push in a list":    "on: [push]\n",
+		"push null":         "on:\n  push:\n",
+		"push paths only":   "on:\n  push:\n    paths: ['a']\n",
+		"create":            "on: create\n",
+		"branches and tags": "on:\n  push:\n    branches: [main]\n    tags: ['v*']\n",
+		"no trigger":        "name: x\n",
+	}
+	for _, name := range heldDisabled {
+		for tname, on := range tagReachable {
+			t.Run("held "+name+" "+tname, func(t *testing.T) {
+				wantHeld(t, checkWorkflows(wfTree(map[string]string{name: on}), mirrorRules), "workflow-trigger", name)
+			})
+		}
+	}
+	notReachable := map[string]string{
+		"branches":                   "on:\n  push:\n    branches: [main]\n",
+		"branches with paths":        "on:\n  push:\n    branches: [main]\n    paths: ['a']\n",
+		"branches-ignore":            "on:\n  push:\n    branches-ignore: [x]\n",
+		"pull_request":               "on: pull_request\n",
+		"workflow_dispatch and cron": "on:\n  workflow_dispatch:\n  schedule:\n    - cron: '0 0 * * 1'\n",
+	}
+	for tname, on := range notReachable {
+		t.Run("pass web.yml "+tname, func(t *testing.T) {
+			if fs := checkWorkflows(wfTree(map[string]string{"web.yml": on}), mirrorRules); len(fs) != 0 {
+				t.Fatalf("findings:\n%s", details(fs))
+			}
+		})
+	}
+
+	// A held-disabled file that cannot be judged is held.
+	unjudged := map[string]struct{ src, rule string }{
+		"unparseable":    {"on: [push\n", "yaml-parse"},
+		"empty":          {"", "yaml-parse"},
+		"null":           {"null\n", "yaml-parse"},
+		"not a mapping":  {"- a\n", "workflow-shape"},
+		"a scalar":       {"hello\n", "workflow-shape"},
+		"duplicate key":  {"on: pull_request\non: pull_request\n", "yaml-duplicate-key"},
+		"two documents":  {"on: pull_request\n---\non: pull_request\n", "yaml-documents"},
+		"reused anchor":  {"on: pull_request\na: &x 1\nb: &x 2\n", "yaml-parse"},
+		"sequence merge": {"on: pull_request\na: &x {k: 1}\nb:\n  <<: [*x]\n", "yaml-merge"},
+	}
+	for tname, c := range unjudged {
+		for _, name := range heldDisabled {
+			t.Run("held "+name+" "+tname, func(t *testing.T) {
+				wantHeld(t, checkWorkflows(wfTree(map[string]string{name: c.src}), mirrorRules), c.rule, name)
+			})
+		}
+	}
+	t.Run("a held-disabled symlink is held", func(t *testing.T) {
+		for _, name := range heldDisabled {
+			fsys := fstest.MapFS{".github/workflows/" + name: {Data: []byte("../x"), Mode: fs.ModeSymlink}}
+			wantHeld(t, checkWorkflows(fsys, mirrorRules), "github-non-regular", name)
+		}
+	})
+	t.Run("an unreadable held-disabled file is held", func(t *testing.T) {
+		wantHeld(t, checkWorkflows(unreadableFS{wfTree(map[string]string{"web.yml": "on: pull_request\n"}), ".github/workflows/web.yml"}, mirrorRules), "workflow-unreadable", "web.yml")
+	})
+}
+
+// unreadableFS lists a file but fails to open it. It wraps the file system
+// rather than embedding it, so that no ReadFile fast path bypasses Open.
+type unreadableFS struct {
+	inner fs.FS
+	bad   string
+}
+
+func (u unreadableFS) Open(name string) (fs.File, error) {
+	if name == u.bad {
+		return nil, fs.ErrPermission
+	}
+	return u.inner.Open(name)
+}
