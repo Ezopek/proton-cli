@@ -173,6 +173,14 @@ func checkBaseMatch(tag, base string) error {
 // has checked that origin is the canonical remote and has fetched the objects of
 // origin's tags.
 func checkTagBinding(g gitRepo, tag, githubSHA, pin string) (string, error) {
+	return checkTagBindingWith(g, tag, githubSHA, pin, nil)
+}
+
+// checkTagBindingWith is checkTagBinding with one optional step: between, when
+// it is not nil, runs on E after the base check and before the toolchain check,
+// and its error ends the run as it is. The in-run guard puts the release profile
+// there. With a nil step it is checkTagBinding.
+func checkTagBindingWith(g gitRepo, tag, githubSHA, pin string, between func(e string) error) (string, error) {
 	if err := checkTagPattern(tag); err != nil {
 		return "", err
 	}
@@ -202,6 +210,11 @@ func checkTagBinding(g gitRepo, tag, githubSHA, pin string) (string, error) {
 	}
 	if err := checkBaseMatch(tag, base); err != nil {
 		return "", err
+	}
+	if between != nil {
+		if err := between(e); err != nil {
+			return "", err
+		}
 	}
 	if err := checkToolchainAt(g, e, pin); err != nil {
 		return "", err

@@ -80,10 +80,13 @@ type ghGetter interface {
 	Get(endpoint string) ([]byte, error)
 }
 
-// endpointPattern is every path the lookup may ask for: the tip of ezop, and a
-// commit, a tree or a blob by a full lowercase SHA. A query string, a dot
-// segment or any other name never matches.
-var endpointPattern = regexp.MustCompile(`^(git/ref/heads/` + ezopBranch + `|git/(commits|trees|blobs)/[0-9a-f]{40})$`)
+// endpointPattern is every path the lookups may ask for: the tip of ezop, a
+// commit, a tree or a blob by a full lowercase SHA, and a page 1 to 50 of the
+// releases list at 100 a page, in that one spelling. Any other query string, a
+// dot segment or any other name never matches.
+var endpointPattern = regexp.MustCompile(`^(git/ref/heads/` + ezopBranch +
+	`|git/(commits|trees|blobs)/[0-9a-f]{40}` +
+	`|releases\?per_page=100&page=([1-9]|[1-4][0-9]|50))$`)
 
 // ghArgs is the exact argument list of a gh call. A path that is not one of the
 // validated shapes is refused here, before gh is run.

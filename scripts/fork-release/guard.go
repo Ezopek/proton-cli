@@ -9,7 +9,7 @@ import (
 )
 
 // guardUsage is the one-line message for a malformed guard command line.
-const guardUsage = "fork-release: usage: fork-release guard --profile release|mirror COMMIT"
+const guardUsage = "fork-release: usage: fork-release guard --profile release|mirror COMMIT | --in-run | --recheck"
 
 // Exit codes: 0 pass, 1 held or refused, 2 usage.
 const (
@@ -19,15 +19,19 @@ const (
 )
 
 // guardDeps is everything the commands touch outside the process: git, the
-// build information, the canonical origin list and the two output streams.
-// Tests replace it. The production value is productionDeps, and nothing on the
-// command line or in the environment can change it.
+// build information, the canonical origin list, the two output streams, the
+// environment of the in-run modes and the GitHub reads. Tests replace it. The
+// production value is productionDeps, and nothing on the command line or in the
+// environment can change it. A nil getenv is an empty environment and a nil gh
+// reads nothing, so an in-run mode that needs it refuses.
 type guardDeps struct {
 	git     gitRepo
 	build   func() (*debug.BuildInfo, bool)
 	origins []string
 	stdout  io.Writer
 	stderr  io.Writer
+	getenv  func(string) string
+	gh      ghGetter
 }
 
 // productionDeps is the real git adapter over the working directory, the
@@ -39,6 +43,8 @@ func productionDeps() guardDeps {
 		origins: canonicalOrigins,
 		stdout:  os.Stdout,
 		stderr:  os.Stderr,
+		getenv:  os.Getenv,
+		gh:      execGH{},
 	}
 }
 
@@ -65,13 +71,20 @@ func profilePaths(profile string) []string {
 	return []string{githubDir}
 }
 
-// runGuard is guard --profile release|mirror COMMIT. It checks, in order: the
+// runGuard is guard --profile release|mirror COMMIT, or one of the two in-run
+// modes (repeat.go). The profile mode checks, in order: the
 // command line, the origin remote, the helper's own build identity, that the
 // helper's commit is landed on the origin/ezop it fetches once, and then
 // classifies the tree of exactly COMMIT. A refusal is one line on standard
 // error and nothing on standard output; a verdict starts with the full SHA
 // that was checked.
 func runGuard(args []string, d guardDeps) int {
+	if len(args) == 1 && args[0] == "--in-run" {
+		return runInRun(d)
+	}
+	if len(args) == 1 && args[0] == "--recheck" {
+		return runRecheck(d)
+	}
 	if len(args) != 3 || args[0] != "--profile" || (args[1] != "release" && args[1] != "mirror") {
 		_, _ = fmt.Fprintln(d.stderr, guardUsage)
 		return exitUsage
