@@ -78,119 +78,6 @@ archives:
       - LICENSE
       - completions/*
 
-nfpms:
-  - ids: [unix]
-    package_name: proton-cli
-    formats: [apk, deb, rpm]
-    maintainer: "Roman <roman@lerchster.dev>"
-    homepage: "https://github.com/roman-16/proton-cli"
-    description: "Unofficial, end-to-end encrypted CLI for Proton Mail, Drive, Calendar, Pass and Contacts."
-    license: MIT
-    bindir: /usr/bin
-    contents:
-      - src: /usr/bin/proton
-        dst: /usr/bin/proton-cli
-        type: symlink
-      # bash and fish autoload by the name being typed, so the alias
-      # needs its own file. The zsh script names both in its #compdef
-      # header, which is what compinit reads, so one file covers it.
-      - src: ./completions/proton.bash
-        dst: /usr/share/bash-completion/completions/proton
-      - src: ./completions/proton.bash
-        dst: /usr/share/bash-completion/completions/proton-cli
-      - src: ./completions/proton.fish
-        dst: /usr/share/fish/vendor_completions.d/proton.fish
-      - src: ./completions/proton-cli.fish
-        dst: /usr/share/fish/vendor_completions.d/proton-cli.fish
-      - src: ./completions/proton.zsh
-        dst: /usr/share/zsh/site-functions/_proton
-      - src: ./LICENSE
-        dst: /usr/share/doc/proton-cli/copyright
-        packager: deb
-      - src: ./LICENSE
-        dst: /usr/share/licenses/proton-cli/LICENSE
-        packager: rpm
-
-aurs:
-  - name: proton-cli-bin
-    ids: [archive]
-    homepage: "https://github.com/roman-16/proton-cli"
-    description: "Unofficial, end-to-end encrypted CLI for Proton Mail, Drive, Calendar, Pass and Contacts."
-    maintainers:
-      - "Roman <roman@lerchster.dev>"
-    license: MIT
-    private_key: "{{ .Env.AUR_KEY }}"
-    git_url: "ssh://aur@aur.archlinux.org/proton-cli-bin.git"
-    commit_author:
-      name: Roman
-      email: roman@lerchster.dev
-    optdepends:
-      - "gtk3: CAPTCHA/human-verification webview"
-      - "webkit2gtk-4.1: CAPTCHA/human-verification webview"
-    package: |-
-      install -Dm755 "./proton" "${pkgdir}/usr/bin/proton"
-      ln -s proton "${pkgdir}/usr/bin/proton-cli"
-      install -Dm644 "./LICENSE" "${pkgdir}/usr/share/licenses/proton-cli-bin/LICENSE"
-      install -Dm644 "./completions/proton.bash" "${pkgdir}/usr/share/bash-completion/completions/proton"
-      install -Dm644 "./completions/proton.bash" "${pkgdir}/usr/share/bash-completion/completions/proton-cli"
-      install -Dm644 "./completions/proton.fish" "${pkgdir}/usr/share/fish/vendor_completions.d/proton.fish"
-      install -Dm644 "./completions/proton-cli.fish" "${pkgdir}/usr/share/fish/vendor_completions.d/proton-cli.fish"
-      install -Dm644 "./completions/proton.zsh"  "${pkgdir}/usr/share/zsh/site-functions/_proton"
-
-homebrew_casks:
-  - name: proton-cli
-    ids: [archive]
-    repository:
-      owner: roman-16
-      name: homebrew-tap
-      token: "{{ .Env.TAP_WINGET_TOKEN }}"
-    commit_author:
-      name: Roman
-      email: roman@lerchster.dev
-    homepage: "https://github.com/roman-16/proton-cli"
-    description: "Unofficial, end-to-end encrypted CLI for Proton Mail, Drive, Calendar, Pass and Contacts."
-    license: MIT
-    binaries:
-      - proton
-    completions:
-      bash: completions/proton.bash
-      fish: completions/proton.fish
-      zsh: completions/proton.zsh
-    # The second name, and the fish script that autoloads under it.
-    custom_block: |
-      binary "proton", target: "proton-cli"
-      fish_completion "completions/proton-cli.fish"
-
-winget:
-  - name: proton-cli
-    publisher: Roman-16
-    package_identifier: Roman-16.ProtonCLI
-    path: "manifests/r/Roman-16/ProtonCLI/{{ .Version }}"
-    commit_author:
-      name: Roman
-      email: roman@lerchster.dev
-    ids: [archive-windows]
-    homepage: "https://github.com/roman-16/proton-cli"
-    short_description: "Unofficial CLI for Proton Mail, Drive, Calendar, Pass and Contacts"
-    description: "Unofficial, end-to-end encrypted CLI for Proton Mail, Drive, Calendar, Pass and Contacts."
-    license: MIT
-    publisher_url: "https://github.com/roman-16"
-    publisher_support_url: "https://github.com/roman-16/proton-cli/issues"
-    tags:
-      - cli
-      - proton
-    repository:
-      owner: roman-16
-      name: winget-pkgs
-      branch: "proton-cli-{{ .Version }}"
-      token: "{{ .Env.TAP_WINGET_TOKEN }}"
-      pull_request:
-        enabled: true
-        base:
-          owner: microsoft
-          name: winget-pkgs
-          branch: master
-
 checksum:
   name_template: "checksums.txt"
   algorithm: sha256
@@ -204,9 +91,8 @@ release:
   # A version carrying a pre-release suffix is not what `proton update` and
   # /releases/latest should hand a user who asked for the current version.
   prerelease: auto
-  # A re-run has to be idempotent: a partial failure (e.g. the AUR being down)
-  # leaves the release, its notes and its assets in place. `mode` only governs
-  # the notes; without `replace_existing_artifacts` every asset upload fails
-  # with 422 already_exists and the retry dies before reaching the publishers.
-  mode: replace
-  replace_existing_artifacts: true
+  # A release that already exists is never repeated or repaired in place; a repair
+  # uses the next version. These two values make GoReleaser refuse to replace an
+  # existing asset and keep existing notes if a repeat run ever reaches this step.
+  mode: keep-existing
+  replace_existing_artifacts: false

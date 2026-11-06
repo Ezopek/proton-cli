@@ -1,0 +1,98 @@
+version: 2
+
+before:
+  hooks:
+    - bash scripts/gen-completions.sh
+
+# The program is `proton`; the project, and so every artifact name, is
+# proton-cli. An install answers to both names: `proton` is the file,
+# `proton-cli` is a link beside it that each channel below creates.
+#
+# Unix and Windows build separately only so their archives can differ.
+# An archive cannot carry a link, and winget shims exactly the
+# executables the release declares, so the Windows zip carries the
+# second name as a small launcher instead. Nothing on Unix needs it:
+# every channel there installs by running something that can link.
+builds:
+  - &build
+    id: unix
+    binary: proton
+    main: ./cmd/proton
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X github.com/roman-16/proton-cli/internal/cli.version={{.Version}}
+  - <<: *build
+    id: windows
+    goos:
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    # Every authenticator on Windows belongs to the operating system, which hands
+    # out assertions through webauthn.dll and reserves the USB devices themselves
+    # to administrators. Reaching that API is what this tag compiles in, and it is
+    # why signing in with a security key on Windows needs a release binary rather
+    # than a `go install` build.
+    flags:
+      - -tags=webauthn
+  - id: windows-alias
+    binary: proton-cli
+    main: ./cmd/proton-cli
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+
+archives:
+  - id: binary
+    ids: [unix, windows]
+    formats: [binary]
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+  # Per-platform archives bundling the binary, license, and completions.
+  # Consumed by the AUR, Homebrew, and winget packages, and offered as a
+  # direct download next to the raw binaries above.
+  - id: archive
+    ids: [unix]
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - completions/*
+  - id: archive-windows
+    ids: [windows, windows-alias]
+    formats: [zip]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - completions/*
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+# There is deliberately no `changelog` section: the release notes are the
+# CHANGELOG.md section for the version being released, handed to goreleaser with
+# `--release-notes`. `changelog.disable` would not express that - it overrides
+# the flag and publishes an empty release body.
+release:
+  draft: false
+  # A version carrying a pre-release suffix is not what `proton update` and
+  # /releases/latest should hand a user who asked for the current version.
+  prerelease: auto
+  # A release that already exists is never repeated or repaired in place; a repair
+  # uses the next version. These two values make GoReleaser refuse to replace an
+  # existing asset and keep existing notes if a repeat run ever reaches this step.
+  mode: keep-existing
+  replace_existing_artifacts: false

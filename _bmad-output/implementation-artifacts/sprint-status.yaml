@@ -1,0 +1,56 @@
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created, ready for development
+#   - in-progress: Developer actively working on implementation
+#   - review: Implementation complete, ready for review
+#   - done: Story completed
+
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+
+# Action Item Status:
+#   - open: Committed during a retrospective, not yet addressed
+#   - in-progress: Actively being worked on
+#   - done: Completed
+
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when its first story starts (via build's sprint sync)
+# - Stories can be worked in parallel if team capacity allows
+# - Developer typically creates the next story after the previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+# - Retrospective appends its action items to action_items; the status view surfaces open ones
+generated: 11-05-2026 23:47
+last_updated: 11-06-2026 00:45
+project: proton-cli
+project_key: NOKEY
+tracking_system: file-system
+story_location: _bmad-output/implementation-artifacts
+development_status:
+  epic-1: in-progress
+  1-1-the-release-configuration-publishes-only-to-the-fork: review
+  1-2-the-operator-can-check-any-commit-with-guard-profile: backlog
+  1-3-a-release-tag-is-bound-to-exactly-one-commit-and-its-upstrea: backlog
+  1-4-the-verification-record-surface-exists-and-is-checked: backlog
+  1-5-a-repeat-run-is-refused-fail-closed: backlog
+  1-6-release-notes-in-run-asset-check-and-stamping-check: backlog
+  1-7-the-operator-can-verify-a-release-and-read-its-status: backlog
+  1-8-a-tag-is-pushed-only-after-guard-pre-push: backlog
+  1-9-the-fork-release-workflow-turns-a-tag-into-a-fork-release: backlog
+  1-10-the-activation-runbook-is-written-for-options-a-and-b: backlog
+  1-11-the-operator-activates-actions-through-the-runbook-operator: backlog
+  1-12-the-bootstrap-release-v5-1-0-ezop-1-becomes-a-verified-fork: backlog
+  epic-1-retrospective: optional
+
+  epic-2: backlog
+  2-1-the-drift-guard-workflow-built-to-the-recorded-d2-decision: backlog
+  2-2-the-drift-guard-goes-live-and-its-weekly-runs-are-observable: backlog
+  epic-2-retrospective: optional
