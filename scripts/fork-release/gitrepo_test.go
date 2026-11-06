@@ -947,3 +947,154 @@ func TestParseOriginTags(t *testing.T) {
 		})
 	}
 }
+
+func TestFetchTagsArgs(t *testing.T) {
+	t.Run("the argument list is pinned", func(t *testing.T) {
+		got, err := fetchTagsArgs([]string{"v1.0.0", "v2.10.3"})
+		want := []string{"fetch", "--no-tags", "origin", "refs/tags/v1.0.0", "refs/tags/v2.10.3"}
+		if err != nil || !reflect.DeepEqual(got, want) {
+			t.Fatalf("got %v, %v; want %v", got, err, want)
+		}
+	})
+	t.Run("a single name has no destination", func(t *testing.T) {
+		got, err := fetchTagsArgs([]string{"v5.1.0"})
+		if err != nil || !reflect.DeepEqual(got, []string{"fetch", "--no-tags", "origin", "refs/tags/v5.1.0"}) {
+			t.Fatalf("got %v, %v", got, err)
+		}
+		for _, a := range got {
+			if strings.ContainsAny(a, ":+*") && a != "--no-tags" {
+				t.Fatalf("argument %q has a destination, a force or a glob", a)
+			}
+		}
+	})
+	t.Run("an empty list is refused", func(t *testing.T) {
+		for _, names := range [][]string{nil, {}} {
+			if got, err := fetchTagsArgs(names); err == nil || got != nil {
+				t.Fatalf("got %v, %v", got, err)
+			}
+		}
+	})
+	t.Run("only Upstream release tag names are accepted", func(t *testing.T) {
+		for _, bad := range []string{
+			"", "v5.1.0-ezop.1", "v5.1", "5.1.0", "v5.1.0-rc.1", "v5.1.0\n", " v5.1.0", "v5.1.0 ", "v*", "*",
+			"refs/tags/v5.1.0", "+v5.1.0", "v5.1.0:refs/heads/x", "--force", "-v5.1.0", "v5.1.0^{}", "V5.1.0", "v1.2.3.4",
+		} {
+			if got, err := fetchTagsArgs([]string{"v1.0.0", bad}); err == nil || got != nil {
+				t.Fatalf("%q: got %v, %v", bad, got, err)
+			}
+		}
+	})
+}
+
+func TestExecGitFetchTags(t *testing.T) {
+	// A bare origin holding ezop (with v1.0.0 lightweight and v1.1.0 annotated on
+	// it) and a tag v2.0.0 on a commit that ezop does not contain. The work
+	// repository reaches it over file:// so that objects really travel.
+	type world struct {
+		work                          *scratch
+		bareURL                       string
+		light, annotated, side, v2Obj string
+	}
+	setup := func(t *testing.T) world {
+		t.Helper()
+		bare := newBare(t)
+		src := newScratch(t)
+		src.write("a.txt", "a")
+		light := src.commit("one")
+		src.git("branch", "-m", "ezop")
+		src.git("tag", "v1.0.0", light)
+		src.write("a.txt", "b")
+		annotated := src.commit("two")
+		src.git("tag", "-a", "-m", "annotated", "v1.1.0", annotated)
+		src.git("checkout", "-q", "-b", "side", light)
+		src.write("s.txt", "s")
+		side := src.commit("side")
+		src.git("tag", "-a", "-m", "side", "v2.0.0", side)
+		v2Obj := src.git("rev-parse", "v2.0.0")
+		src.git("remote", "add", "origin", bare)
+		src.git("push", "-q", "origin", "ezop", "refs/tags/v1.0.0", "refs/tags/v1.1.0", "refs/tags/v2.0.0")
+		work := newScratch(t)
+		url := "file://" + bare
+		work.git("remote", "add", "origin", url)
+		return world{work, url, light, annotated, side, v2Obj}
+	}
+	has := func(w world, oid string) bool {
+		_, err := w.work.gitErr("cat-file", "-e", oid)
+		return err == nil
+	}
+
+	t.Run("the objects arrive and only FETCH_HEAD changes", func(t *testing.T) {
+		w := setup(t)
+		g := w.work.adapter()
+		if _, err := g.FetchEzop(); err != nil {
+			t.Fatal(err)
+		}
+		// Control: the commit of a tag that is not in ezop's history is absent,
+		// and the ancestry question has no answer.
+		if has(w, w.side) || has(w, w.v2Obj) {
+			t.Fatal("control: the side commit is already in the clone")
+		}
+		if status, _ := g.IsAncestor(w.side, w.annotated); status == 0 || status == 1 {
+			t.Fatalf("control: ancestry answered %d without the object", status)
+		}
+		refs := w.work.git("for-each-ref")
+		tags := w.work.git("tag", "--list")
+		if err := g.FetchTags([]string{"v1.0.0", "v1.1.0", "v2.0.0"}); err != nil {
+			t.Fatal(err)
+		}
+		if !has(w, w.side) || !has(w, w.v2Obj) || !has(w, w.light) {
+			t.Fatal("the objects did not arrive")
+		}
+		if after := w.work.git("for-each-ref"); after != refs {
+			t.Fatalf("the ref list changed:\n%s\n--\n%s", refs, after)
+		}
+		if after := w.work.git("tag", "--list"); after != tags || after != "" {
+			t.Fatalf("the tag list changed: %q", after)
+		}
+		if status, err := g.IsAncestor(w.light, w.annotated); err != nil || status != 0 {
+			t.Fatalf("a tag merged into ezop: status %d, %v", status, err)
+		}
+		if status, err := g.IsAncestor(w.side, w.annotated); err != nil || status != 1 {
+			t.Fatalf("a tag not merged into ezop: status %d, %v", status, err)
+		}
+		if head := w.work.git("rev-parse", "--verify", "FETCH_HEAD"); !fullSHA.MatchString(head) {
+			t.Fatalf("FETCH_HEAD %q", head)
+		}
+	})
+	t.Run("a name missing on the remote fails the fetch without printing the remote", func(t *testing.T) {
+		w := setup(t)
+		err := w.work.adapter().FetchTags([]string{"v1.0.0", "v9.9.9"})
+		if err == nil || strings.Contains(err.Error(), w.bareURL) || strings.Contains(err.Error(), "v9.9.9") {
+			t.Fatalf("got %v", err)
+		}
+	})
+	t.Run("a remote that does not exist fails without printing it", func(t *testing.T) {
+		work := newScratch(t)
+		work.git("remote", "add", "origin", filepath.Join(t.TempDir(), "no-such-remote.git"))
+		err := work.adapter().FetchTags([]string{"v1.0.0"})
+		if err == nil || strings.Contains(err.Error(), "no-such-remote") {
+			t.Fatalf("got %v", err)
+		}
+	})
+	t.Run("an invalid list runs no git", func(t *testing.T) {
+		w := setup(t)
+		before := w.work.git("for-each-ref")
+		for _, names := range [][]string{nil, {"*"}, {"v5.1.0-ezop.1"}} {
+			if err := w.work.adapter().FetchTags(names); err == nil {
+				t.Fatalf("%v accepted", names)
+			}
+		}
+		if _, err := w.work.gitErr("rev-parse", "--verify", "FETCH_HEAD"); err == nil {
+			t.Fatal("a fetch ran")
+		}
+		if w.work.git("for-each-ref") != before {
+			t.Fatal("refs changed")
+		}
+	})
+	t.Run("the real adapter offers the capability", func(t *testing.T) {
+		var g gitRepo = execGit{}
+		if _, ok := g.(tagFetcher); !ok {
+			t.Fatal("execGit has no FetchTags")
+		}
+	})
+}

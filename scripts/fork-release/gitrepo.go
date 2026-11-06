@@ -417,3 +417,45 @@ func (d *treeDir) ReadDir(n int) ([]fs.DirEntry, error) {
 	}
 	return out, nil
 }
+
+// tagFetcher is the optional capability of the real adapter that fetches the
+// objects of Upstream release tags. It is a separate interface so that the
+// gitRepo interface and every fake stay as they are; a git without it makes the
+// pre-push guard refuse.
+type tagFetcher interface {
+	FetchTags(names []string) error
+}
+
+// fetchTagsArgs is the exact argument list of FetchTags: one explicit
+// refs/tags/<name> refspec per name and no destination, so only FETCH_HEAD is
+// written. A glob is not a valid refspec without a destination, and a name is
+// never accepted unless it is an Upstream release tag, so nothing a remote
+// lists can become an option, a destination or a force. An empty list is
+// refused.
+func fetchTagsArgs(names []string) ([]string, error) {
+	if len(names) == 0 {
+		return nil, errors.New("no tag names to fetch")
+	}
+	args := []string{"fetch", "--no-tags", "origin"}
+	for _, name := range names {
+		if !upstreamTagPattern.MatchString(name) {
+			return nil, errors.New("not an Upstream release tag name")
+		}
+		args = append(args, "refs/tags/"+name)
+	}
+	return args, nil
+}
+
+// FetchTags fetches the named Upstream release tags from origin into FETCH_HEAD
+// only, so that their objects are present for the ancestry test. It creates and
+// updates no local ref or tag. One name that origin lacks fails the whole fetch.
+func (g execGit) FetchTags(names []string) error {
+	args, err := fetchTagsArgs(names)
+	if err != nil {
+		return err
+	}
+	if _, status, err := g.run(args...); err != nil || status != 0 {
+		return errors.New("could not fetch the Upstream release tags from origin")
+	}
+	return nil
+}

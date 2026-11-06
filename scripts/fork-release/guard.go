@@ -10,7 +10,7 @@ import (
 )
 
 // guardUsage is the one-line message for a malformed guard command line.
-const guardUsage = "fork-release: usage: fork-release guard --profile release|mirror COMMIT | --in-run | --recheck"
+const guardUsage = "fork-release: usage: fork-release guard --profile release|mirror COMMIT | --pre-push TAG COMMIT | --in-run | --recheck"
 
 // Exit codes: 0 pass, 1 held or refused, 2 usage.
 const (
@@ -100,12 +100,14 @@ func profilePaths(profile string) []string {
 	return []string{githubDir}
 }
 
-// helperIdentity is the sequence every Operator-side command begins with, before
-// it reads anything else: the origin remote, the helper's own build identity,
-// one fetch of origin ezop, and that the helper's commit is that tip or an
-// ancestor of it. It answers the helper's commit and the fetched tip. Its order
-// and its messages are fixed: origin (every fetch and push URL), the build, the
-// fetch, the ancestry.
+// helperIdentity is the sequence that the Operator-side commands guard --profile,
+// verify and verify --status begin with, before they read anything else (guard
+// --pre-push has its own order, in prepush.go): the origin remote, the helper's
+// own build identity, one fetch of origin ezop, and that the helper's commit is
+// that tip or an ancestor of it. The fetch writes FETCH_HEAD and may update the
+// remote-tracking ref refs/remotes/origin/ezop. It answers the helper's commit
+// and the fetched tip. Its order and its messages are fixed: origin (every fetch
+// and push URL), the build, the fetch, the ancestry.
 func helperIdentity(d guardDeps) (helper, tip string, err error) {
 	fetchURLs, err := d.git.OriginURLs(false)
 	if err != nil {
@@ -142,14 +144,18 @@ func helperIdentity(d guardDeps) (helper, tip string, err error) {
 	return helper, tip, nil
 }
 
-// runGuard is guard --profile release|mirror COMMIT, or one of the two in-run
-// modes (repeat.go). The profile mode checks, in order: the
+// runGuard dispatches the guard modes: --pre-push TAG COMMIT (prepush.go), the
+// two in-run modes --in-run and --recheck (repeat.go), and --profile
+// release|mirror COMMIT. The profile mode checks, in order: the
 // command line, the origin remote, the helper's own build identity, that the
 // helper's commit is landed on the origin/ezop it fetches once, and then
 // classifies the tree of exactly COMMIT. A refusal is one line on standard
 // error and nothing on standard output; a verdict starts with the full SHA
 // that was checked.
 func runGuard(args []string, d guardDeps) int {
+	if len(args) > 0 && args[0] == "--pre-push" {
+		return runPrePush(args[1:], d)
+	}
 	if len(args) == 1 && args[0] == "--in-run" {
 		return runInRun(d)
 	}

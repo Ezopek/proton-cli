@@ -609,21 +609,20 @@ func TestGuardRecheck(t *testing.T) {
 
 func TestGuardInRunModesTakeNoOtherArgument(t *testing.T) {
 	for name, args := range map[string][]string{
-		"in-run and a word":      {"--in-run", "x"},
-		"in-run twice":           {"--in-run", "--in-run"},
-		"both modes":             {"--in-run", "--recheck"},
-		"recheck and a word":     {"--recheck", "x"},
-		"recheck and a tag":      {"--recheck", inRunTag},
-		"in-run and profile":     {"--in-run", "--profile", "release", "main"},
-		"bare word":              {"in-run"},
-		"equals form":            {"--in-run=1"},
-		"upper case":             {"--IN-RUN"},
-		"single dash":            {"-in-run"},
-		"recheck bare word":      {"recheck"},
-		"empty argument":         {""},
-		"in-run and empty":       {"--in-run", ""},
-		"unknown flag":           {"--other"},
-		"pre-push still unknown": {"--pre-push", inRunTag, targetSHA},
+		"in-run and a word":  {"--in-run", "x"},
+		"in-run twice":       {"--in-run", "--in-run"},
+		"both modes":         {"--in-run", "--recheck"},
+		"recheck and a word": {"--recheck", "x"},
+		"recheck and a tag":  {"--recheck", inRunTag},
+		"in-run and profile": {"--in-run", "--profile", "release", "main"},
+		"bare word":          {"in-run"},
+		"equals form":        {"--in-run=1"},
+		"upper case":         {"--IN-RUN"},
+		"single dash":        {"-in-run"},
+		"recheck bare word":  {"recheck"},
+		"empty argument":     {""},
+		"in-run and empty":   {"--in-run", ""},
+		"unknown flag":       {"--other"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			w := newInRunWorld(t)
