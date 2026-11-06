@@ -2,6 +2,7 @@ package main
 
 import (
 	"debug/buildinfo"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -205,8 +206,39 @@ func TestBuildRecipeIsTheOneTheTestsRun(t *testing.T) {
 	}
 }
 
+// copyInternalSources copies the non-test Go files under the product's internal
+// directory into the scratch clone, at the same paths. The helper imports
+// internal/selfmanage (for the names of the release binaries), and that package
+// imports others under internal, so a scratch build needs them all.
+func copyInternalSources(t *testing.T, s *scratch) {
+	t.Helper()
+	root := filepath.Join("..", "..", "internal")
+	err := filepath.WalkDir(root, func(path string, e fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if e.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		s.write("internal/"+filepath.ToSlash(rel), string(data))
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 // buildInScratchClone makes a fresh scratch repository holding copies of the
-// helper's own non-test sources and the module files, commits them, lets edit
+// helper's own non-test sources, the product sources under internal it imports
+// and the module files, commits them, lets edit
 // change the clone, and runs go with args (the documented recipe, or a
 // variant) to build into a directory outside the clone. It returns the build
 // information read from the binary and the commit.
@@ -228,6 +260,7 @@ func buildInScratchClone(t *testing.T, args func(out string) []string, edit func
 		}
 		s.write("scripts/fork-release/"+name, string(data))
 	}
+	copyInternalSources(t, s)
 	for _, name := range []string{"go.mod", "go.sum"} {
 		data, err := os.ReadFile(filepath.Join("..", "..", name))
 		if err != nil {

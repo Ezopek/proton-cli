@@ -1,8 +1,8 @@
 package main
 
 import (
+	"math"
 	"strconv"
-	"strings"
 )
 
 // The release lookup answers one question: what does the repository's list of
@@ -66,10 +66,29 @@ func (s releaseState) String() string {
 // releaseLookup is the answer: the state and, for Unknown, a reason built from
 // a closed set of words. The reason never holds a response, a URL or a name
 // from the answer.
+//
+// For Published-Same it also carries the release's assets. The asset list is
+// read by assets and stamp only, so a list that cannot be trusted never changes
+// the state: it leaves Assets empty and AssetsReason set, from the same closed
+// vocabulary, and only the command that needs the list refuses.
 type releaseLookup struct {
-	State  releaseState
-	Reason string
+	State        releaseState
+	Reason       string
+	Assets       []releaseAsset
+	AssetsReason string
 }
+
+// releaseAsset is one entry of a release's asset list: its name, its id (which
+// the download path needs) and its upload state. Only "uploaded" is complete.
+type releaseAsset struct {
+	Name  string
+	ID    int64
+	State string
+}
+
+// maxAssetID is the largest id that survives a trip through a JSON number read
+// as a float64 without losing a digit.
+const maxAssetID = 1<<53 - 1
 
 // Reasons of an Unknown release lookup, beside the shared causes.
 const (
@@ -78,6 +97,9 @@ const (
 	causeCeiling    = "page ceiling"
 	causeNotTag     = "not a Release Tag"
 	causeNotFullSHA = "not a full commit SHA"
+
+	causeNoAssets       = "no asset list"
+	causeMalformedAsset = "malformed asset entry"
 )
 
 // parseCommitLine finds the one Commit line of a notes body. Lines end at a
@@ -85,17 +107,7 @@ const (
 // commit only when exactly one line starts with the prefix and the rest of it is
 // 40 lowercase hex characters; a repeated or malformed line answers false.
 func parseCommitLine(body string) (string, bool) {
-	var sha string
-	found := 0
-	for _, line := range strings.Split(body, "\n") {
-		line = strings.TrimSuffix(line, "\r")
-		value, ok := strings.CutPrefix(line, commitLinePrefix)
-		if !ok {
-			continue
-		}
-		found++
-		sha = value
-	}
+	sha, found := lineValue(body, commitLinePrefix)
 	if found != 1 || !fullSHA.MatchString(sha) {
 		return "", false
 	}
@@ -165,7 +177,39 @@ func classifyRelease(matches []map[string]any, e string) releaseLookup {
 	}
 	body, _ := entry["body"].(string)
 	if sha, ok := parseCommitLine(body); ok && sha == e {
-		return releaseLookup{State: releasePublishedSame}
+		assets, reason := parseAssets(entry)
+		return releaseLookup{State: releasePublishedSame, Assets: assets, AssetsReason: reason}
 	}
 	return releaseLookup{State: releaseOther}
+}
+
+// parseAssets reads the asset list of a release entry. The list is trusted whole
+// or not at all: an entry without a name, a whole positive id or a state, or a
+// name or an id seen twice, fails the list with a reason from a closed set.
+func parseAssets(entry map[string]any) ([]releaseAsset, string) {
+	raw, ok := entry["assets"].([]any)
+	if !ok {
+		return nil, causeNoAssets
+	}
+	assets := make([]releaseAsset, 0, len(raw))
+	names, ids := map[string]bool{}, map[int64]bool{}
+	for _, item := range raw {
+		obj, ok := item.(map[string]any)
+		if !ok {
+			return nil, causeMalformedAsset
+		}
+		name, okName := obj["name"].(string)
+		state, okState := obj["state"].(string)
+		num, okID := obj["id"].(float64)
+		if !okName || name == "" || !okState || !okID || num != math.Trunc(num) || num < 1 || num > maxAssetID {
+			return nil, causeMalformedAsset
+		}
+		id := int64(num)
+		if names[name] || ids[id] {
+			return nil, causeRepeated
+		}
+		names[name], ids[id] = true, true
+		assets = append(assets, releaseAsset{Name: name, ID: id, State: state})
+	}
+	return assets, ""
 }

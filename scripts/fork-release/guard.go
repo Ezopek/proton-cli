@@ -32,6 +32,9 @@ type guardDeps struct {
 	stderr  io.Writer
 	getenv  func(string) string
 	gh      ghGetter
+	// runProgram runs a program and answers its standard output; nil means the
+	// real execution (execProgram). Only stamp uses it.
+	runProgram func(path string, args, env []string) ([]byte, error)
 }
 
 // productionDeps is the real git adapter over the working directory, the
@@ -49,17 +52,36 @@ func productionDeps() guardDeps {
 }
 
 // run dispatches a command line (without the program name) and returns the
-// exit code. Only guard exists so far.
+// exit code.
 func run(args []string, d guardDeps) int {
 	if len(args) == 0 {
 		_, _ = fmt.Fprintln(d.stderr, "fork-release: no command")
 		return exitUsage
 	}
-	if args[0] == "guard" {
+	switch args[0] {
+	case "guard":
 		return runGuard(args[1:], d)
+	case "notes":
+		return runInRunCommand(args, d, runNotes)
+	case "assets":
+		return runInRunCommand(args, d, runAssets)
+	case "stamp":
+		return runInRunCommand(args, d, runStamp)
 	}
 	_, _ = fmt.Fprintln(d.stderr, "fork-release: unknown command")
 	return exitUsage
+}
+
+// runInRunCommand runs one of the commands that only exist inside the release
+// run, notes, assets and stamp. They take their inputs from the Actions
+// variables, so the one accepted spelling is NAME --in-run; a bare command or an
+// extra argument is usage, with no read of anything.
+func runInRunCommand(args []string, d guardDeps, command func(guardDeps) int) int {
+	if len(args) != 2 || args[1] != "--in-run" {
+		_, _ = fmt.Fprintf(d.stderr, "fork-release: usage: fork-release %s --in-run\n", args[0])
+		return exitUsage
+	}
+	return command(d)
 }
 
 // profilePaths are the only paths of a commit's tree a profile may open.

@@ -693,6 +693,7 @@ func buildHelperBinary(t *testing.T) string {
 		}
 		s.write("scripts/fork-release/"+name, string(data))
 	}
+	copyInternalSources(t, s)
 	for _, name := range []string{"go.mod", "go.sum"} {
 		data, err := os.ReadFile(filepath.Join("..", "..", name))
 		if err != nil {

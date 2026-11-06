@@ -100,6 +100,34 @@ func ghArgs(endpoint string) ([]string, error) {
 // maxGHOutput bounds an answer; a tree or a record is far smaller.
 const maxGHOutput = 8 << 20
 
+// maxGHDownload bounds a downloaded release asset. A fork binary is tens of
+// megabytes, so this is larger than the JSON limit, with room to grow, and still
+// bounded.
+const maxGHDownload = 256 << 20
+
+// assetPattern is the one path a download may ask for: an asset of the release
+// repository by its decimal id, without a sign or leading zero, in at most 16
+// digits.
+var assetPattern = regexp.MustCompile(`^releases/assets/[1-9][0-9]{0,15}$`)
+
+// ghDownloader is the seam to the documented "get a release asset" endpoint:
+// the content of one asset by its path. It is a separate interface so that a
+// reader of JSON does not have to implement it.
+type ghDownloader interface {
+	Download(endpoint string) ([]byte, error)
+}
+
+// ghDownloadArgs is the exact argument list of a gh download. With the
+// octet-stream Accept header the API answers the content (or redirects to it);
+// without it the answer would be the asset's JSON description.
+func ghDownloadArgs(endpoint string) ([]string, error) {
+	if !assetPattern.MatchString(endpoint) {
+		return nil, errors.New("the API path is not one the download may read")
+	}
+	return []string{"api", "--method", "GET", "-H", "X-GitHub-Api-Version: " + ghAPIVersion,
+		"-H", "Accept: application/octet-stream", "repos/" + ghRepo + "/" + endpoint}, nil
+}
+
 const defaultGHTimeout = 60 * time.Second
 
 // execGH is the adapter over the gh program. It builds the argument list, runs
@@ -112,6 +140,8 @@ type execGH struct {
 	env []string
 	// timeout bounds the call; zero means 60 seconds.
 	timeout time.Duration
+	// downloadLimit bounds a downloaded asset; zero means maxGHDownload.
+	downloadLimit int
 }
 
 // ghEnv drops the variables that could aim gh at another repository or host.
@@ -144,6 +174,26 @@ func (g execGH) Get(endpoint string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	return g.run(args, maxGHOutput)
+}
+
+// Download reads one release asset, up to downloadLimit bytes (maxGHDownload
+// when it is zero).
+func (g execGH) Download(endpoint string) ([]byte, error) {
+	args, err := ghDownloadArgs(endpoint)
+	if err != nil {
+		return nil, err
+	}
+	limit := g.downloadLimit
+	if limit == 0 {
+		limit = maxGHDownload
+	}
+	return g.run(args, limit)
+}
+
+// run executes gh with args and returns at most limit bytes of its standard
+// output.
+func (g execGH) run(args []string, limit int) ([]byte, error) {
 	program, timeout, env := g.program, g.timeout, g.env
 	if program == "" {
 		program = "gh"
@@ -159,7 +209,7 @@ func (g execGH) Get(endpoint string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, program, args...)
 	cmd.Env = ghEnv(env)
 	cmd.WaitDelay = time.Second
-	out := &limitWriter{max: maxGHOutput}
+	out := &limitWriter{max: limit}
 	cmd.Stdout = out
 	// Standard error and input are dropped: gh's diagnostics can name a URL.
 	if err := cmd.Run(); err != nil {
