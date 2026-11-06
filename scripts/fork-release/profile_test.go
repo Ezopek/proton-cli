@@ -32,7 +32,7 @@ func TestCheckRelease(t *testing.T) {
 	})
 	t.Run("cleaned tree with fork-release.yml passes", func(t *testing.T) {
 		fsys := cleanTree(t)
-		fsys[".github/workflows/fork-release.yml"] = &fstest.MapFile{Data: []byte(forkReleaseY)}
+		fsys[".github/workflows/fork-release.yml"] = &fstest.MapFile{Data: []byte(realWorkflow(t))}
 		if fs := CheckRelease(fsys); len(fs) != 0 {
 			t.Fatalf("findings:\n%s", details(fs))
 		}
@@ -170,7 +170,7 @@ func TestCheckReleaseNullDocuments(t *testing.T) {
 			t.Run(tname+" "+sname, func(t *testing.T) {
 				fsys := cleanTree(t)
 				if path == ".github/workflows/fork-release.yml" {
-					fsys[path] = &fstest.MapFile{Data: []byte(forkReleaseY)}
+					fsys[path] = &fstest.MapFile{Data: []byte(realWorkflow(t))}
 					if fs := CheckRelease(fsys); len(fs) != 0 {
 						t.Fatalf("control: the tree with a sound fork workflow is not clean:\n%s", details(fs))
 					}
@@ -379,7 +379,7 @@ func TestCheckMirror(t *testing.T) {
 	})
 	t.Run("an ezop-derived tree with fork-release.yml is held", func(t *testing.T) {
 		fsys := cleanTree(t)
-		fsys[".github/workflows/fork-release.yml"] = &fstest.MapFile{Data: []byte(forkReleaseY)}
+		fsys[".github/workflows/fork-release.yml"] = &fstest.MapFile{Data: []byte(realWorkflow(t))}
 		wantHeld(t, CheckMirror(fsys), "workflow-set", "fork-release.yml")
 		if got := CheckRelease(fsys); len(got) != 0 {
 			t.Fatalf("control: release holds the derived tree:\n%s", details(got))

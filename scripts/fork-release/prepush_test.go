@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -72,10 +73,18 @@ func TestGuardPrePushShape(t *testing.T) {
 
 // ---- guard --pre-push TAG C: the checks over fakes ----
 
-// ppWorkflow is a fork-release.yml that passes the release profile and carries
-// the GoReleaser pin in its top-level env.
+// ppWorkflow is the real fork-release.yml, which passes the release profile,
+// with its top-level env block (the GoReleaser pin) replaced by pinLine.
 func ppWorkflow(pinLine string) string {
-	return strings.Replace(forkReleaseY, "permissions:\n", pinLine+"permissions:\n", 1)
+	data, err := fs.ReadFile(repoRoot(), forkReleasePath)
+	if err != nil {
+		panic("the real " + forkReleasePath + " cannot be read: " + err.Error())
+	}
+	const envBlock = "env:\n  GORELEASER_PIN: " + goodPin + "\n\n"
+	if strings.Count(string(data), envBlock) != 1 {
+		panic("the real " + forkReleasePath + " does not carry its pin env block exactly once")
+	}
+	return strings.Replace(string(data), envBlock, pinLine, 1)
 }
 
 // ppGit is a stepGit with the tag fetch of the real adapter, per-pair ancestry
@@ -349,16 +358,16 @@ func TestGuardPrePushRefusals(t *testing.T) {
 		{"a held profile", func(w *ppWorld) { w.git.tree[".github/workflows/release.yml"] = fstestFile("name: Release\n") }, "profile", afterProfile, true},
 		{"an unreadable tree", func(w *ppWorld) { w.git.treeErr = errors.New("boom SECRET") }, "profile", afterProfile, true},
 		{"no fork-release.yml", func(w *ppWorld) { noRelease(w, forkReleasePath) }, "toolchain", afterToolchain, true},
-		{"no pin", func(w *ppWorld) { w.git.tree[forkReleasePath] = fstestFile(ppWorkflow("")) }, "toolchain", afterToolchain, true},
+		{"no pin", func(w *ppWorld) { w.git.tree[forkReleasePath] = fstestFile(ppWorkflow("")) }, "profile", afterProfile, true},
 		{"a pin that differs from the lock", func(w *ppWorld) {
 			w.git.tree[forkReleasePath] = fstestFile(ppWorkflow("env:\n  GORELEASER_PIN: v2.99.0\n"))
 		}, "toolchain", afterToolchain, true},
 		{"a pin without v", func(w *ppWorld) {
 			w.git.tree[forkReleasePath] = fstestFile(ppWorkflow("env:\n  GORELEASER_PIN: 2.17.1\n"))
-		}, "toolchain", afterToolchain, true},
+		}, "profile", afterProfile, true},
 		{"a pin only in a job", func(w *ppWorld) {
 			w.git.tree[forkReleasePath] = fstestFile(strings.Replace(ppWorkflow(""), "    runs-on: ubuntu-24.04\n", "    runs-on: ubuntu-24.04\n    env:\n      GORELEASER_PIN: "+goodPin+"\n", 1))
-		}, "toolchain", afterToolchain, true},
+		}, "profile", afterProfile, true},
 		{"a repeated pin is held by the profile before the pin is read", func(w *ppWorld) {
 			w.git.tree[forkReleasePath] = fstestFile(ppWorkflow("env:\n  GORELEASER_PIN: " + goodPin + "\n  GORELEASER_PIN: " + goodPin + "\n"))
 		}, "profile", afterProfile, true},

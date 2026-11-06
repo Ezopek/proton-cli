@@ -8,10 +8,12 @@ import "io/fs"
 //
 // The profile is for a tree that is, or becomes, an ezop commit. It holds the
 // .goreleaser.yaml rules, the .github/ file set, and the rules every enabled
-// workflow shares, with the exceptions of fork-release.yml.
+// workflow shares, with the exceptions of fork-release.yml, and the pinned shape
+// of fork-release.yml itself when the file is present.
 func CheckRelease(fsys fs.FS) []Finding {
 	out := checkGoreleaser(fsys)
 	out = append(out, checkWorkflows(fsys, workflowRules{allowForkRelease: true})...)
+	out = append(out, checkForkWorkflow(fsys)...)
 	return sortFindings(out)
 }
 

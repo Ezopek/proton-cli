@@ -1,0 +1,86 @@
+name: Fork Release
+
+# The only workflow that publishes. Its shape is pinned by the release profile
+# of scripts/fork-release, so a change here is a reviewed topic that changes the
+# pin in the same commit, and it lands while Actions are off.
+on:
+  push:
+    tags: ['v*-ezop.*']
+
+permissions:
+  contents: read
+
+env:
+  GORELEASER_PIN: v2.17.1
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.repository == 'Ezopek/proton-cli'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Build the release helper
+        run: go build -o "$RUNNER_TEMP/fork-release" ./scripts/fork-release
+      - name: Guard the tag and the tree
+        run: '"$RUNNER_TEMP/fork-release" guard --in-run'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Write the release notes
+        run: '"$RUNNER_TEMP/fork-release" notes --in-run'
+      - name: Re-read the record and the release
+        run: '"$RUNNER_TEMP/fork-release" guard --recheck'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish the Fork Release
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        with:
+          version: ${{ env.GORELEASER_PIN }}
+          args: release --clean --release-notes ${{ runner.temp }}/fork-release-notes.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
+      - name: Check the published assets
+        run: '"$RUNNER_TEMP/fork-release" assets --in-run'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Summarize the versions
+        run: |
+          echo "Go: $(go version)" >> "$GITHUB_STEP_SUMMARY"
+          echo "GoReleaser: $GORELEASER_PIN" >> "$GITHUB_STEP_SUMMARY"
+
+  stamp:
+    needs: release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Build the release helper
+        run: go build -o "$RUNNER_TEMP/fork-release" ./scripts/fork-release
+      - name: Run the uploaded binary
+        run: '"$RUNNER_TEMP/fork-release" stamp --in-run'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
