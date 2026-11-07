@@ -312,7 +312,7 @@ the clear yes above is not available here. Nothing more is claimed about Q1.
 
 | Path | Pass |
 | --- | --- |
-| `web.yml` | `disabled_manually`, read back after the bounded enable of section 2.7a. A 404, `active` or anything else is not a pass |
+| `web.yml` | no run in the window and, if it registers, not left `active` (section 2.7a); not registered is accepted. A run of it is a stop |
 | `release.yml`, `openapi-sync.yml`, `stats.yml` | `disabled_manually`, or not registered (404) once Actions are on: their `schedule`, `workflow_run` and dispatch triggers need the file on the default branch (`ezop`), where they do not exist (documented rule). `active` is not a pass: disable it by id |
 
 `web.yml` differs because it also has a `push` trigger that reads `main`'s own
@@ -459,6 +459,9 @@ or a failed read.
 ### 2.6 Step 6: a fresh preflight
 
 Run the whole Run-Inventory Preflight (section 3) now, inside the push freeze.
+Under option B first do the preparation of section 2.7a (probe branch and freeze),
+so that the preflight is taken with both in place; the policy is not changed
+before it.
 A settings change other than the chosen option's own bracketed steps and the planned transitions of section 2.7a voids it.
 Stop: any stop in section 3; a push, new run, re-enable or workflow change in the
 window.
@@ -482,7 +485,9 @@ gh api --hostname github.com --method PUT -H "$GHV" 'repos/Ezopek/proton-cli/act
 gh api --hostname github.com --method GET -H "$GHV" 'repos/Ezopek/proton-cli/actions/permissions' | jq '{enabled, allowed_actions}'
 ```
 
-Pass: `enabled` is `true` and `allowed_actions` is as recorded in step 2.2.
+Pass: `enabled` is `true` and `allowed_actions` is as recorded in step 2.2 (under
+option B it is read for the first time right after the enable and then set to
+`selected` as section 2.7a says).
 Stop: the switch does not read `true`, or `allowed_actions` changed: turn Actions
 off (below) and D1 returns to the Operator.
 
@@ -490,67 +495,350 @@ To turn Actions off again (the safe direction, any time a check fails), the same
 **Manual Operator write** with `-F enabled=false`, then read back `enabled:
 false`.
 
-### 2.7a Option B: the bounded enable, enumerate and disable
+### 2.7a Option B: the bounded enable
 
 The inherited paths cannot be read or disabled while Actions are off (404, section
-2.2), so under option B they can only be disabled after the switch is on. This is
-a bounded **attempt**, not a proof: GitHub documents no atomic enable-and-disable,
-zero runs does not show that no event is waiting, and nothing here claims that
-enabling starts nothing. It is one uninterrupted sequence by one person, inside
-the freeze: its single enable and its disables are the planned transitions of the
-procedure and do not void the preflight, and every other change does (section
-3.9). The controls:
+2.2), and a workflow file that exists only on a non-default branch is not expected
+to register until it has run. So under option B the enable is one bounded step,
+and its protection is what can happen during it, not a per-path disable. It is
+not a proof: GitHub documents no atomic enable-and-disable, no run does not show
+that no event is pending, and an actor with administration rights can change
+settings. What stays open is listed at the end of this section, not waived.
 
-1. **Before the single enable.** The preflight of section 3 passed fresh inside
-   the freeze: no push, merge, dispatch, re-run, workflow change or competing
-   settings change by anyone, the Operator included, until the attempt ends.
-   `default_branch` reads `ezop`. The `main-mirror`, `main-operator-only` and
-   `tags-operator-only` rulesets read back as recorded. The readback breadth of
-   section 4 is complete, **deploy keys and installed apps with write access
-   included**; a missing read or an unverified item is a stop. The exact heads of
-   `main` and `ezop` and the workflow file ids of both are written down. No
-   `v*-ezop.*` tag is pushed.
-2. **One enable**, the write of step 2.7, and nothing else in between. Do not
-   push to `main`: that starts `web.yml` and `ci.yml` from `main`'s own files.
-3. **At once**, list the workflows and the runs, then disable every registered
-   inherited path by id, `web.yml` first, and read each state back separately.
+While Actions are off GitHub also hides the policy: the permissions read answers
+only `enabled` and `sha_pinning_required` (observed 2026-11-07), and the
+selected-actions read answers 409. So the original `allowed_actions` is
+**unknown** until Actions are on, whether a policy can be written while they are
+off is **untested**, and the runbook claims neither. The practical path is a
+bounded interval under the existing policy, whose breadth is unknown until the
+first readback: with the probe branch, the no-bypass freeze and the fresh
+preflight already in place, Actions are enabled once with `{"enabled":true}`
+only, the now-visible original mode and list are captured, and the restriction is
+set and read back while the freeze is held. The freeze bounds that interval; it
+does not prove that nothing runs in it.
+
+Two rules run through every command below. **A response is never the truth:** a
+write can apply and still report an error, and a read can fail without meaning
+"absent", so every write is reconciled with a successful readback, and a failed
+read is a stop, never "nothing there". **Ownership is tracked separately from
+the attempt:** a ref or ruleset is deleted only if a readback confirms that this
+attempt created it; anything uncertain is left alone and reported. Nothing is
+ever reported as restored unless a fresh read shows it, and an original value
+that was never captured is never invented.
+
+1. **Reads and helpers.** Installed apps cannot be listed with a user token (`GET
+   …/installation` answered 401 and `GET /user/installations` 403 on
+   2026-11-07): record them as **unknown**, never as none. List the recent
+   repository events and record how many actors are bots. Section 4 is otherwise
+   complete; any other missing read is a stop. Record the off-state policy read
+   as it is, then define the helpers once per session:
 
 ```sh
-gh api --hostname github.com --method GET -H "$GHV" --paginate --slurp 'repos/Ezopek/proton-cli/actions/workflows?per_page=100' > "$WORK/wf-after-enable.json"
+GH() {  # every call names its method: the CLI silently switches to POST when parameters are added
+  case " $* " in *" --method "*) ;; *) echo "GH: --method is required" >&2; return 2 ;; esac
+  gh api --hostname github.com -H "$GHV" "$@"
+}
+REPO=repos/Ezopek/proton-cli
+GH --method GET "$REPO/actions/permissions" > "$WORK/perm-off.json"; echo "off-state read: exit $?"
+jq -c . "$WORK/perm-off.json"
+GH --method GET "$REPO/actions/permissions/selected-actions" > /dev/null; echo "selected-actions read while off: exit $? (expected: an error)"
+```
+
+```sh
+rref() {  # SHA of a remote branch, nothing if absent; FAILS if the remote cannot be read
+  local out; out=$(git ls-remote --heads origin "refs/heads/$1") || return 1
+  printf '%s\n' "$out" | cut -f 1
+}
+polget() { GH --method GET "$REPO/actions/permissions$1"; }
+polput() { GH --method PUT "$REPO/actions/permissions$1" --input -; }
+WANT='{"github_owned_allowed":false,"verified_allowed":false,"patterns_allowed":["actions/checkout@*","actions/setup-go@*","goreleaser/goreleaser-action@*","jetify-com/devbox-install-action@*","cachix/install-nix-action@*","actions/cache/restore@*","actions/cache/save@*"]}'
+pol_verify() {  # usage: pol_verify true|false. 0 only if both reads succeed and show the intended restriction
+  local p s
+  p=$(polget '') && s=$(polget /selected-actions) || { echo "policy read failed"; return 1; }
+  printf '%s' "$p" | jq -e --argjson en "$1" '.enabled == $en and .allowed_actions == "selected"' >/dev/null || { echo "permissions differ"; return 1; }
+  printf '%s' "$s" | jq -e --argjson want "$WANT" '.github_owned_allowed == false and .verified_allowed == false and ((.patterns_allowed | sort) == ($want.patterns_allowed | sort))' >/dev/null || { echo "selected-actions differ"; return 1; }
+}
+pol_orig_ok() {  # 0 only if a fresh read SHOWS Actions off and the captured original mode (and list); hidden fields are not a match
+  local p s mode
+  mode=$(jq -r '.allowed_actions // empty' "$WORK/perm-orig.json" 2>/dev/null)
+  [ -n "$mode" ] || { echo "no original mode was captured"; return 1; }
+  p=$(polget '') || { echo "restore check: read failed"; return 1; }
+  printf '%s' "$p" | jq -e '.enabled == false' >/dev/null || { echo "restore check: Actions are not off"; return 1; }
+  printf '%s' "$p" | jq -e --arg m "$mode" '.allowed_actions == $m' >/dev/null || { echo "restore check: the mode is hidden or differs while off; cannot confirm"; return 1; }
+  if [ "$mode" = selected ]; then
+    s=$(polget /selected-actions) || { echo "restore check: list read failed"; return 1; }
+    printf '%s' "$s" | jq -e --slurpfile o "$WORK/sel-orig.json" '.github_owned_allowed == $o[0].github_owned_allowed and .verified_allowed == $o[0].verified_allowed and ((.patterns_allowed | sort) == ($o[0].patterns_allowed | sort))' >/dev/null || { echo "restore check: list differs"; return 1; }
+  fi
+}
+pol_restore() {  # try to restore ONLY the captured original; the result is CONFIRMED only if a fresh read shows it
+  local rc=0 mode
+  mode=$(jq -r '.allowed_actions // empty' "$WORK/perm-orig.json" 2>/dev/null)
+  if [ -z "$mode" ]; then echo "UNCONFIRMED: no original mode was captured; nothing is restored and none is invented"; return 1; fi
+  jq '{enabled: false, allowed_actions} + (if has("sha_pinning_required") then {sha_pinning_required} else {} end)' "$WORK/perm-orig.json" | polput '' >/dev/null || { echo "restore: the permissions write was rejected"; rc=1; }
+  if [ "$mode" = selected ]; then
+    jq '{github_owned_allowed, verified_allowed, patterns_allowed}' "$WORK/sel-orig.json" | polput /selected-actions >/dev/null || { echo "restore: the list write was rejected"; rc=1; }
+  fi
+  pol_orig_ok || rc=1
+  if [ "$rc" = 0 ]; then echo "RESTORED and read back"; else echo "UNCONFIRMED: the original policy is not confirmed restored (while Actions are off GitHub may hide it; read it at the next enable)"; fi
+  return $rc
+}
+rs_id() {  # id of the ruleset with that name, nothing if absent; FAILS if the list cannot be read
+  local out; out=$(GH --method GET --paginate --slurp "$REPO/rulesets?per_page=100") || return 1
+  printf '%s' "$out" | jq -r --arg n "$1" '.[][] | select(.name == $n) | .id'
+}
+rs_gone() {  # 0 = answers 404 (gone), 1 = still exists, 2 = ambiguous answer
+  local out; if out=$(GH --method GET "$REPO/rulesets/$1" 2>&1); then return 1; fi
+  printf '%s' "$out" | grep -q 'HTTP 404' && return 0; return 2
+}
+rs_check() { GH --method GET "$REPO/rulesets/$1" | jq -e '.enforcement == "active" and .conditions.ref_name.include == ["~ALL"] and (.bypass_actors | length) == 0' >/dev/null; }
+```
+
+2. **Probe branch, freeze, probes.** All three blocks share the variables of the
+   first one, so run them in one shell session. Names are stamped and must be
+   absent, the probe commit comes from the remote tip `EZ` and not from the local
+   `ezop`, and ownership is `none`, `confirmed`, `gone` or `unknown`: it becomes
+   `confirmed` only when a successful readback shows the value this attempt
+   pushed, whatever the push reported. **Manual Operator write.**
+
+```sh
+cd "$CLONE"
+STAMPP=$(date -u +%Y%m%dT%H%M%SZ); PROBE="zz-activation-probe-$STAMPP"; NEWP="zz-activation-new-$STAMPP"
+PROBE_OWN=none; NEWP_OWN=none; PROBE_ATT=0; NEWP_ATT=0; ERR=0
+git fetch --no-tags origin '+refs/heads/*:refs/remotes/origin/*' || ERR=1
+EZ=$(git ls-remote origin refs/heads/ezop | cut -f 1) || ERR=1
+if [ -n "$EZ" ] && git cat-file -e "$EZ^{commit}"; then P1=$(git rev-parse "$EZ~1") || ERR=1; else ERR=1; fi
+git ls-remote --refs origin 'refs/heads/*' 'refs/tags/*' > "$WORK/refs-before-probe.txt" || ERR=1
+A=$(rref "$PROBE") || ERR=1; B=$(rref "$NEWP") || ERR=1
+if [ "$ERR" = 1 ]; then echo "STOP: a read failed; nothing was pushed"
+elif [ -n "$A$B" ]; then echo "STOP: a probe name already exists; use a new stamp and touch nothing"
+else
+  PROBE_ATT=1
+  git push origin "${P1:?}:refs/heads/$PROBE"; rc=$?
+  if cur=$(rref "$PROBE"); then
+    if [ "$cur" = "$P1" ]; then PROBE_OWN=confirmed; echo "probe branch created and owned (push exit $rc)"
+    elif [ -z "$cur" ]; then echo "STOP: the probe branch was not created (push exit $rc)"
+    else PROBE_OWN=unknown; echo "STOP: the probe branch exists with an unexpected value"; fi
+  else PROBE_OWN=unknown; echo "STOP: the probe branch cannot be confirmed (push exit $rc); leave it"; fi
+fi
+[ "$PROBE_OWN" = confirmed ]
+```
+
+   Then the freeze: two rulesets on `~ALL` with no bypass actor, so that even the
+   Operator is rejected until they are deleted. The bodies are the ones accepted
+   in a trial on 2026-11-07 (ids 26743988 and 26743990, read back, then deleted;
+   **not** active now). Their ids are found by name right after the writes,
+   whatever the writes answered, and recorded in `$WORK/freeze-ids` (keep `$WORK`
+   until the release); only recorded ids are ever deleted, never a ruleset found
+   later by its name.
+   **Manual Operator write.**
+
+```sh
+FREEZE_OK=0
+if ! FB=$(rs_id activation-freeze-branches) || ! FT=$(rs_id activation-freeze-tags); then echo "STOP: cannot read the rulesets"; FB=; FT=
+elif [ -n "$FB$FT" ]; then echo "STOP: a freeze ruleset already exists and is not ours; touch nothing"; FB=; FT=
+else
+  printf '%s' '{"name":"activation-freeze-branches","target":"branch","enforcement":"active","conditions":{"ref_name":{"include":["~ALL"],"exclude":[]}},"rules":[{"type":"creation"},{"type":"update"},{"type":"deletion"},{"type":"non_fast_forward"}],"bypass_actors":[]}' | GH --method POST "$REPO/rulesets" --input - >/dev/null; echo "create branches: exit $?"
+  printf '%s' '{"name":"activation-freeze-tags","target":"tag","enforcement":"active","conditions":{"ref_name":{"include":["~ALL"],"exclude":[]}},"rules":[{"type":"creation"},{"type":"update"},{"type":"deletion"}],"bypass_actors":[]}' | GH --method POST "$REPO/rulesets" --input - >/dev/null; echo "create tags: exit $?"
+  if FB=$(rs_id activation-freeze-branches) && FT=$(rs_id activation-freeze-tags); then printf '%s\n%s\n' "$FB" "$FT" > "$WORK/freeze-ids"
+  else echo "STOP: cannot read the rulesets back; a freeze ruleset may exist: find it by name, check that it is the one just created, and delete it by its id"; FB=; FT=; fi
+  if [ -n "$FB" ] && [ -n "$FT" ] && rs_check "$FB" && rs_check "$FT"; then FREEZE_OK=1; echo "FREEZE READY: both active, ~ALL, no bypass actor"; else echo "STOP: the freeze is not as intended"; fi
+fi
+[ "$FREEZE_OK" = 1 ]
+```
+
+   Then the three probes. Each must be rejected **by the repository rules** (the
+   answer names GH013 or rule violations). After each one the probe refs are
+   read back and ownership is reconciled, because even a failed push may have
+   applied; the first problem ends the probes. A probe that is accepted means the
+   freeze does not hold.
+
+```sh
+PROBES_OK=1
+expect_rejected() {  # usage: expect_rejected DESCRIPTION GIT_PUSH_ARGS... ; 0 rejected by the rules, 1 other failure, 2 accepted
+  local what=$1 out; shift
+  if out=$(git push "$@" 2>&1); then echo "STOP: $what was ACCEPTED"; return 2; fi
+  if printf '%s\n' "$out" | grep -q -E 'GH013|rule violations'; then echo "PASS: $what rejected by the repository rules"; return 0; fi
+  echo "STOP: $what failed for another reason"; return 1
+}
+probe_reconcile() {  # read both probe refs, set the ownership words, 0 only if they are unchanged
+  local a b
+  if ! a=$(rref "$PROBE") || ! b=$(rref "$NEWP"); then PROBE_OWN=unknown; NEWP_OWN=unknown; echo "STOP: cannot read the probe refs"; return 1; fi
+  case "$a" in "$P1"|"$EZ") PROBE_OWN=confirmed ;; "") PROBE_OWN=gone ;; *) PROBE_OWN=unknown ;; esac
+  case "$b" in "$EZ") NEWP_OWN=confirmed ;; "") NEWP_OWN=none ;; *) NEWP_OWN=unknown ;; esac
+  [ "$a" = "$P1" ] && [ -z "$b" ] || { echo "STOP: the probe refs changed (probe=${a:-absent} new=${b:-absent})"; return 1; }
+}
+if [ "${FREEZE_OK:-0}" != 1 ] || [ "${PROBE_OWN:-none}" != confirmed ]; then echo "STOP: the probes need an owned probe branch and a verified freeze"; PROBES_OK=0; fi
+for step in creation update deletion; do
+  [ "$PROBES_OK" = 1 ] || break
+  case $step in
+    creation) NEWP_ATT=1; expect_rejected "branch creation" origin "${EZ:?}:refs/heads/$NEWP" ;;
+    update) expect_rejected "branch update" origin "${EZ:?}:refs/heads/$PROBE" ;;
+    deletion) expect_rejected "branch deletion" origin --delete "$PROBE" ;;
+  esac
+  rc=$?
+  probe_reconcile || PROBES_OK=0
+  [ "$rc" = 0 ] || PROBES_OK=0
+done
+if [ "$PROBES_OK" = 1 ]; then echo "PROBES PASSED: three rejections by the rules, refs unchanged"; else echo "PROBES FAILED: run the recovery of step 9"; fi
+[ "$PROBES_OK" = 1 ]
+```
+
+   The rejections show that creation, update and deletion of a branch are
+   covered for the Operator. They show nothing about an actor with administration
+   rights, who can delete a ruleset.
+3. **Preflight inside the freeze.** Now run step 2.6. Its ref snapshot contains the
+   probe branch, which is expected; the fresh readback of section 3.10 must find
+   the same refs. Any stop in it goes to step 9. Nothing about the policy has been
+   changed yet.
+4. **One enable, with only `{"enabled":true}`, and the capture.** The write of step
+   2.7, only when `FREEZE READY` and `PROBES PASSED` printed and the preflight
+   passed. `allowed_actions` is omitted, so the policy in force stays whatever it
+   was; then the now-visible original mode (and selected list) is read and saved.
+   An unclear enable answer is settled by the readback. If Actions are on and the
+   mode cannot be read, or the mode is `selected` and its list cannot be read,
+   that is a stop with Actions on: go to step 9 at once. Do not push to `main`.
+   **Manual Operator write:**
+
+```sh
+ENABLED_OK=0
+if [ "${FREEZE_OK:-0}" = 1 ] && [ "${PROBES_OK:-0}" = 1 ]; then
+  printf '%s' '{"enabled":true}' | polput '' >/dev/null; echo "enable write: exit $?"
+  if ! p=$(polget ''); then echo "STOP: cannot read the policy after the enable; turn Actions off (step 9)"
+  elif [ "$(printf '%s' "$p" | jq -r '.enabled')" != true ]; then echo "STOP: Actions are still off (the enable did not apply); nothing to turn off"
+  elif ! printf '%s' "$p" | jq -e '.allowed_actions | type == "string"' >/dev/null; then echo "STOP: Actions are on but the mode is not visible; turn Actions off (step 9)"
+  else
+    printf '%s' "$p" > "$WORK/perm-orig.json"
+    if [ "$(jq -r '.allowed_actions' "$WORK/perm-orig.json")" = selected ] && ! { polget /selected-actions > "$WORK/sel-orig.json" && jq -e . "$WORK/sel-orig.json" >/dev/null; }; then echo "STOP: the original mode is selected but its list cannot be read; turn Actions off (step 9)"
+    else ENABLED_OK=1; echo "ENABLED; the original policy in force is captured: $(jq -r '.allowed_actions' "$WORK/perm-orig.json")"; fi
+  fi
+else echo "STOP: the freeze or the probes are not confirmed; do not enable"; fi
+[ "$ENABLED_OK" = 1 ]
+```
+
+5. **Restrict, while Actions are on and the freeze is held.** Allow only the
+   actions the two workflows on `ezop` use (`actions/checkout`,
+   `actions/setup-go`, `goreleaser/goreleaser-action`,
+   `jetify-com/devbox-install-action`, `cachix/install-nix-action`) and the two
+   cache actions that the pinned Devbox action calls (`actions/cache/restore`,
+   `actions/cache/save`; named by a source reading of that action, not
+   live-tested), each at any version so that a pin bump needs no settings write,
+   with **both** allowance flags false. This keeps out the third-party actions
+   that `web.yml` needs (`oven-sh/setup-bun`, `peaceiris/actions-gh-pages`);
+   whether a workflow that uses a disallowed action fails at startup is
+   **untested**. It does not stop a `run:` shell step in a workflow whose actions
+   are allowed: the other inherited workflows are held back only by the
+   default-branch trigger rule. The write exit codes are information only; the
+   readback decides. **Manual Operator write** (**Unverified until first use**;
+   the list call requires `selected` to be set by the first):
+
+```sh
+POLICY_OK=0
+if [ "${ENABLED_OK:-0}" = 1 ]; then
+  jq '{enabled: true, allowed_actions: "selected"} + (if has("sha_pinning_required") then {sha_pinning_required} else {} end)' "$WORK/perm-orig.json" | polput '' >/dev/null; echo "permissions write: exit $?"
+  printf '%s' "$WANT" | polput /selected-actions >/dev/null; echo "selected-actions write: exit $?"
+  if pol_verify true; then POLICY_OK=1; echo "POLICY READY: the restriction is read back with Actions on"; else echo "STOP: the restriction is not established; turn Actions off first (step 9)"; fi
+else echo "STOP: Actions are not enabled by this attempt; nothing to configure"; fi
+[ "$POLICY_OK" = 1 ]
+```
+
+   Pass: `POLICY READY`. Anything else goes to step 9 now, with Actions on and the
+   policy in force still the captured original: **Actions are turned off first**,
+   independently of any restoration.
+6. **Readback at once and again after about two minutes**: `enabled` is `true`,
+   `allowed_actions` is `selected` with the seven patterns and both flags false
+   (`pol_verify true`); the workflows and runs are listed; refs, tags, pull
+   requests and settings are as the section 3.10 snapshot; the six recorded
+   rulesets and the two freeze rulesets read back unchanged.
+
+```sh
+pol_verify true && echo "policy still as intended"
+GH --method GET --paginate --slurp "$REPO/actions/workflows?per_page=100" > "$WORK/wf-after-enable.json"
 jq -r '.[].workflows[] | [.id, .path, .state] | @tsv' "$WORK/wf-after-enable.json"
-gh api --hostname github.com --method GET -H "$GHV" --paginate --slurp 'repos/Ezopek/proton-cli/actions/runs?per_page=100' > "$WORK/runs-after-enable.json"
+GH --method GET --paginate --slurp "$REPO/actions/runs?per_page=100" > "$WORK/runs-after-enable.json"
 jq -c '[.[].workflow_runs[] | [.id, .run_attempt, .status, .conclusion, .updated_at]] | sort' "$WORK/runs-after-enable.json" | diff "$WORK/runs-fresh.sig" - && echo "runs unchanged"
 ```
 
-   **Manual Operator write**, once per registered inherited path (**Unverified
-   until first use**; the documented success answer is 204):
+7. **Pass** (the readback condition of Verified Activation under option B): no run
+   (`runs unchanged`); the workflow list holds `ci.yml`, `fork-release.yml` and
+   nothing `active` that is not one of them; step 6 as recorded. `web.yml` need not
+   be registered or disabled: its only trigger left is a push to `main`, which the
+   freeze holds now and `main-operator-only` holds after it. If it registers
+   `active`, disable it by id as hygiene (**Manual Operator write**, `PUT
+   …/actions/workflows/{id}/disable`, expected 204). **Keep the freeze and the
+   probe branch** and go on to step 2.8, which is part of the same window.
+8. **Release, only after step 2.8 has passed.** Delete the two freeze rulesets by
+   the exact ids recorded above, then delete only the refs whose ownership is
+   `confirmed`, and check that the refs are back to the snapshot of step 2. A
+   deletion that is not confirmed gone keeps its id: repeat it for that id
+   only, never recreate. **Manual Operator write.**
 
 ```sh
-WID=THE_ID_FROM_THE_LISTING
-gh api --hostname github.com --method PUT -H "$GHV" "repos/Ezopek/proton-cli/actions/workflows/${WID:?}/disable"
-gh api --hostname github.com --method GET -H "$GHV" "repos/Ezopek/proton-cli/actions/workflows/${WID:?}" | jq -r '.state'
+RS_OK=1
+if [ -z "${FB:-}${FT:-}" ] && [ -s "$WORK/freeze-ids" ]; then FB=$(sed -n 1p "$WORK/freeze-ids"); FT=$(sed -n 2p "$WORK/freeze-ids"); fi
+for id in "${FB:-}" "${FT:-}"; do
+  [ -n "$id" ] || { echo "no id for a freeze ruleset: nothing to delete for it"; continue; }
+  rs_gone "$id"; r=$?
+  if [ "$r" = 0 ]; then echo "ruleset $id is already gone"; continue; fi
+  GH --method DELETE "$REPO/rulesets/$id" >/dev/null; echo "delete $id: exit $?"
+  rs_gone "$id"; r=$?
+  if [ "$r" = 0 ]; then echo "ruleset $id confirmed gone"; else echo "STOP: ruleset $id not confirmed gone (state $r); keep this id and repeat for it only"; RS_OK=0; fi
+done
+[ "$RS_OK" = 1 ] && GH --method GET --paginate --slurp "$REPO/rulesets?per_page=100" | jq -r '.[][] | [.id, .name] | @tsv'
+[ "$RS_OK" = 1 ]
 ```
 
-4. **Pass** (the Verified Activation condition under option B): `web.yml` is
-   registered and reads `disabled_manually`; every other inherited path reads
-   `disabled_manually` or is not registered; the list otherwise holds only
-   `ci.yml` and `fork-release.yml`; `runs unchanged` printed; refs, tags, pull
-   requests and settings are unchanged. Then go on to step 2.8.
-5. **Stop at once**, turn Actions off and read back `enabled: false`, on any run
-   that started, workflow that appeared and is not expected, ref that moved,
-   permission or setting that changed, ambiguous answer, or required disable that
-   did not succeed. Then list every non-terminal run, cancel the unsafe ones, read
-   each to a terminal state, keep the completed-job evidence, and inspect refs,
-   releases, artifacts and any outside effect. Do not delete evidence, re-run an
-   inherited workflow, or move or delete a tag.
-6. **If `web.yml` is not registered after the enable (the 404 persists), it cannot
-   be disabled and this is not Verified Activation.** Roll back as in 5, and do
-   not trigger the workflow to make it register. The fallback is a separate,
-   recorded decision prepared while Actions are off: remove the owner bypass from
-   the `main` update restriction and freeze `main` for the activation and release
-   window, and restrict the allowed actions to the exact pinned set that the two
-   workflows on `ezop` use (an allow-list alone does not contain a shell step).
-   Amend these criteria before trying again.
+```sh
+CLEAN_OK=1
+for b in "$PROBE" "$NEWP"; do
+  if [ "$b" = "$PROBE" ]; then own=${PROBE_OWN:-none}; att=${PROBE_ATT:-0}; else own=${NEWP_OWN:-none}; att=${NEWP_ATT:-0}; fi
+  if ! cur=$(rref "$b"); then echo "STOP: cannot read $b; delete nothing for it"; CLEAN_OK=0; continue; fi
+  if [ -z "$cur" ]; then echo "$b is absent (attempted=$att, ownership $own)"; [ "$own" != unknown ] || CLEAN_OK=0; continue; fi
+  if [ "$own" = confirmed ] && { [ "$cur" = "$P1" ] || [ "$cur" = "$EZ" ]; }; then
+    git push origin --delete "$b"; echo "delete $b: exit $?"
+    if after=$(rref "$b") && [ -z "$after" ]; then echo "$b confirmed gone"; else echo "STOP: $b not confirmed gone"; CLEAN_OK=0; fi
+  elif [ "$att" = 0 ]; then echo "$b exists but this attempt never tried to create it; left untouched"
+  else echo "STOP: $b is not confirmed as created by this attempt (attempted=$att, ownership $own); left in place"; CLEAN_OK=0; fi
+done
+git ls-remote --refs origin 'refs/heads/*' 'refs/tags/*' > "$WORK/refs-after-cleanup.txt" || CLEAN_OK=0
+if diff "$WORK/refs-before-probe.txt" "$WORK/refs-after-cleanup.txt"; then echo "refs back to the snapshot"; else CLEAN_OK=0; fi
+[ "$CLEAN_OK" = 1 ]
+```
+
+9. **Recovery: every stop in steps 1 to 8 comes here, in this order.** (a) If
+   Actions might be on, turn them off **first and on their own**, then confirm by a
+   fresh read; repeat until `ACTIONS ARE OFF` prints, and do nothing else before.
+   (b) Separately, if the policy was already changed, try to restore only the captured original with
+   `pol_restore`; it prints `RESTORED and read back` only if a fresh read shows
+   it, and otherwise `UNCONFIRMED`, which is reported as it is (the policy fields
+   are hidden while Actions are off, so the next enable shows what is in force).
+   An original that was never captured is not invented, and a stop before step 4 has nothing to restore. (c) List the non-terminal
+   runs, cancel the unsafe ones and read each to a terminal state. (d) Delete the
+   freeze rulesets and the refs this attempt created with the two blocks of step
+   8, which use the recorded ids and the confirmed ownership only; if the freeze
+   had already been deleted and Actions are on, create it again first (step 2) and
+   note the new ids. (e) Keep the completed-job evidence and inspect refs,
+   releases, artifacts and outside effects. Do not delete evidence, re-run an
+   inherited workflow, or move or delete a tag, and never delete a ref or ruleset
+   this attempt did not create. **Manual Operator write:**
+
+```sh
+OFF_OK=0
+printf '%s' '{"enabled":false}' | polput '' >/dev/null; echo "disable write: exit $?"
+if p=$(polget '') && [ "$(printf '%s' "$p" | jq -r '.enabled')" = false ]; then OFF_OK=1; echo "ACTIONS ARE OFF (read back)"; else echo "STOP: Actions are NOT confirmed off; repeat this block until they are"; fi
+[ "$OFF_OK" = 1 ]
+```
+
+**Open, not waived.** (0) Between the enable and the end of step 5 the policy in force is the original, whose breadth is unknown until the capture; the freeze bounds that interval and zero known pending events make it short, but no run being visible is not proof that none started. (a) An actor with administration rights, such as an
+installed app with that permission, can delete the freeze or change settings in
+the window; installed apps stay unknown. (b) A pull request opened by an outside
+account creates an event the freeze cannot hold (read-only token, no secrets, the
+approval policy applies); the readback would show its run. (c) Whether rulesets
+bind a workflow's `GITHUB_TOKEN` (Q3) and how a disallowed action fails are
+unverified. (d) After the window, the first mirror push to `main` that touches
+`web.yml`'s paths starts a Web run from `main`'s own file: a read-only job with no
+deploy key. The positive `disabled_manually` for `web.yml` is not required because
+it cannot be obtained without running the workflow, and it would not remove (a)
+or (b).
 
 ### 2.8 Step 8: the post-enable readback, inside the freeze (Verified Activation)
 
@@ -574,7 +862,8 @@ jq -c '[.[].workflow_runs[] | [.id, .run_attempt, .status, .conclusion, .updated
    counts). Pass: unchanged.
 
 **Verified Activation is this readback passing**, captured locally. The push
-freeze lifts at that moment. Write the activation evidence (section 5) from the
+freeze lifts at that moment; under option B the ruleset freeze of section 2.7a is
+released as step 8 of that section says, after this readback and not before. Write the activation evidence (section 5) from the
 captured values and land it through the `FORK.md` Git workflow. Later pushes
 follow `FORK.md`'s reviewed topics, and a topic that changes workflow files
 follows section 9.2.
@@ -625,8 +914,8 @@ the default branch, and Upstream's `openapi-sync.yml` does not become the Drift
 Guard by default (D2 stays open). The only workflows allowed on `ezop` are
 `ci.yml`, `fork-release.yml` and a Drift Guard that D2 has approved (none exists
 yet). `web.yml` has a `push`-to-`main` trigger that still reads the file on
-`main`, so it must be positively disabled during the bounded enable of section
-2.7a (a 404 is not a disable). Read the tree back:
+`main`, so it is held by the freeze and the allow-list of section 2.7a, and
+disabled by id if it ever registers (a 404 is not a disable). Read the tree back:
 
 ```sh
 cd "$CLONE"
@@ -1068,10 +1357,11 @@ gh api --hostname github.com --method GET -H "$GHV" --paginate --slurp 'repos/Ez
 **Installed apps with write access.** No command; read the account's installed
 GitHub Apps in the settings and, for each, whether it can reach this repository
 with write access. Pass: none with write access. Record the count. As of
-2026-11-07 this inventory is **not verified**: `GET repos/Ezopek/proton-cli/installation`
-answered 401 because that endpoint needs a GitHub App token and is not an
-inventory. Until the settings read is done, the bounded enable of section 2.7a
-does not start.
+2026-11-07 a user token cannot read it: `GET repos/Ezopek/proton-cli/installation`
+answered 401 (it needs a GitHub App token) and `GET /user/installations` answered
+403. Record the item as **unknown**, never as none, with the controls and the open
+points of section 2.7a. The settings page is the way to close it; it is not a
+start condition.
 
 **Pages.** Pass: HTTP 404 (not configured) is unused. Any other answer is
 recorded and is a stop until the Operator decides.
@@ -1201,7 +1491,7 @@ values.
 
 ## Enable and Verified Activation
 - Enabled at <time UTC> (not 00:00 or 01:00 UTC): enabled <true>; allowed_actions <value, unchanged>
-- Post-enable readback inside the freeze (time UTC): inherited paths <state, or not registered, each; web.yml disabled_manually>; run count <n> equals the preflight count; new runs <0>; refs, tags and pull requests unchanged <yes>; settings unchanged <yes>
+- Post-enable readback inside the freeze (time UTC): inherited paths <state, or not registered, each; web.yml not run>; freeze probes rejected <yes>; allow-list <seven patterns>; run count <n> equals the preflight count; new runs <0>; refs, tags and pull requests unchanged <yes>; settings unchanged <yes>
 - Verified Activation: <yes, at time UTC>
 
 ## First-use observations
