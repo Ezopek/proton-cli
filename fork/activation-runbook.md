@@ -9,22 +9,27 @@ a rule, it cites the document that owns it.
 
 ## 0. Authority, owner and rules
 
-- **Owner.** The Operator, and only the Operator.
+- **Owner.** The Operator. The Operator may delegate the execution of any step,
+  in writing and for a named operation, to the person or tool doing the work. The
+  decisions below and every stop in this file stay the Operator's and bind the
+  delegate. The rebase and force-push of `ezop` (section 9.1) stay the Operator's
+  own, as `FORK.md` says.
 - **Start condition.** This runbook starts only after the #1 work is merged into
   `ezop`. Writing it authorized nothing.
-- **It chooses nothing.** It does not choose between option A and option B of
-  decision D1. It does not take D1, D2, the Q4 risk acceptance or the
+- **It chooses nothing.** It does not take D1, D2, the Q4 risk acceptance or the
   abandonment policy for `v5.1.0-ezop.1` for anyone. Those are the Operator's
-  decisions, recorded before the step that needs them (section 1.1).
+  decisions, recorded before the step that needs them (section 1.1), which also
+  lists the ones already taken.
 - **Every step that changes GitHub or the repository is taken by the Operator
-  personally, at that time, after the checks before it.** That covers disabling
-  a workflow path, creating or adjusting a ruleset, removing a secret, changing
-  the default branch, enabling or disabling Actions, deleting a branch, closing a
-  pull request, pushing a tag or a ref (the topic of an evidence or record pull
-  request included), re-running or canceling a run, and landing evidence or a
-  record. No agent, workflow or tool performs one (AD-4). Each
-  such command in this file sits under the label **Manual Operator write**.
-  Nothing else in the file writes to GitHub.
+  or the Operator's delegate, at that time, after the checks before it.** That
+  covers disabling a workflow path, creating or adjusting a ruleset, removing a
+  secret, changing the default branch, enabling or disabling Actions, deleting a
+  branch, closing a pull request, pushing a tag or a ref (the topic of an
+  evidence or record pull request included), re-running or canceling a run, and
+  landing evidence or a record. A workflow never performs one (AD-4); a person
+  or tool does so only for the Operator. Each such command in this file sits
+  under the label **Manual Operator write**, whoever runs it. Nothing else in the
+  file writes to GitHub.
 - **The safe state is Actions off, and it is never given up to reach safety.**
   If a check fails, Actions stay off, or are turned off at once, and D1 returns
   to the Operator. Actions are never enabled to get out of a bad state.
@@ -34,8 +39,9 @@ a rule, it cites the document that owns it.
   (an error, an empty or differently shaped answer, a count that does not
   reconcile) is a stop. Record the surprise in words in the evidence, never as
   raw output, and do not go on.
-- **Nothing in this file is live proof.** Every command here was written, not
-  run. Section 11 lists what that leaves open.
+- **Nothing in this file is live proof.** The commands were written, not run,
+  except where this file records an observation with its date (sections 1.1,
+  2.2, 2.4, 2.10 and 11). Section 11 lists what that leaves open.
 
 ## 1. Before you start
 
@@ -52,6 +58,15 @@ if any item is missing.
 | The `FORK.md` › Following Upstream amendment that carries the AD-13 procedure, approved | step 2.1 | `FORK.md` on `ezop` |
 | The FR-12 ruleset items in force and recorded in `FORK.md` | step 2.4 | the `FORK.md` ruleset table |
 | The Q4 risk and the abandonment policy for `v5.1.0-ezop.1` (the policy covers any failed first run, not Q4 alone) | before the first Release Tag, section 6.1 | a sanitized note under `fork/evidence/` (the activation evidence or one beside it) |
+
+**Taken so far** (as of 2026-11-07, from the Operator's instruction): D1 is
+**option B**, and the Operator delegated the execution of the settings, the
+Actions activation and the first release. Abandonment policy for
+`v5.1.0-ezop.1`: a failed first run is retried only when the retry rule allows it
+(a full re-run after `verify --status` shows `record: none` and `release: None`);
+when it cannot be retried, the version is abandoned and `v5.1.0-ezop.2` is used.
+The two operator-only rulesets exist (section 2.4). Still to be written down: the
+Q4 risk note, and D2 if the Operator wants one before the first release.
 
 ### 1.2 Tools and host
 
@@ -238,7 +253,15 @@ Pass: `enabled` is `false`. Record `allowed_actions` as read. Stop: `enabled` is
 `true` (turn it off at once with the write in step 2.7, using `enabled=false`,
 and start again).
 
-**Q1 first.** Q1 is whether a workflow can be disabled, read back and have its
+**Option B exception (observed 2026-11-07).** Under option B, while Actions are
+off, a `GET` of each of the four paths answers HTTP 404, and so does `PUT
+…/disable`. That exact answer is the expected one: record it as "not registered"
+(never as disabled), skip the disable calls and the test below, and go on; the
+inherited paths are decided at section 2.7a. Only a 404 qualifies. An
+authentication or authorization error (401, 403), a server error, an empty or
+malformed answer, or any workflow state (`active`, `deleted`, …) is still a stop.
+
+**Q1 first (option A).** Q1 is whether a workflow can be disabled, read back and have its
 runs listed while Actions are off. No official page states it. Try it on one
 path only:
 
@@ -277,6 +300,23 @@ done
 
 Pass: all four print `disabled_manually`. Stop: any other state or a failed
 read. The workflow list is read in full in section 3.7.
+
+**Observed 2026-11-07, Actions off.** A `GET` of each of the four paths and a
+`PUT …/disable` returned HTTP 404, and the workflow list was empty. A 404 is not
+a state: it is not `disabled_manually` and is never recorded as disabled. It
+means GitHub has no workflow object to read or change while the switch is off, so
+the clear yes above is not available here. Nothing more is claimed about Q1.
+
+**Reading rule for option B.** Wherever this runbook says the four states read
+`disabled_manually` (2.8, 3.10, 6.11, 8.1, 9), under option B read:
+
+| Path | Pass |
+| --- | --- |
+| `web.yml` | `disabled_manually`, read back after the bounded enable of section 2.7a. A 404, `active` or anything else is not a pass |
+| `release.yml`, `openapi-sync.yml`, `stats.yml` | `disabled_manually`, or not registered (404) once Actions are on: their `schedule`, `workflow_run` and dispatch triggers need the file on the default branch (`ezop`), where they do not exist (documented rule). `active` is not a pass: disable it by id |
+
+`web.yml` differs because it also has a `push` trigger that reads `main`'s own
+file, so being absent from the default branch does not stop it.
 
 ### 2.3 Step 3: the seven-secret readback (names only)
 
@@ -351,9 +391,17 @@ gh api --hostname github.com --method GET -H "$GHV" --paginate --slurp 'repos/Ez
 jq -r '.[][] | [.id, .name, .target, .enforcement] | @tsv' "$WORK/rulesets.json"
 for id in $(jq -r '.[][].id' "$WORK/rulesets.json"); do
   gh api --hostname github.com --method GET -H "$GHV" "repos/Ezopek/proton-cli/rulesets/$id" > "$WORK/ruleset-$id.json" || { echo "STOP: read failed"; break; }
-  jq -S '{name, target, enforcement, include: .conditions.ref_name.include, exclude: .conditions.ref_name.exclude, rules: [.rules[].type], bypass: [.bypass_actors[] | {actor_type, bypass_mode}]}' "$WORK/ruleset-$id.json"
+  jq -S '{name, target, enforcement, include: .conditions.ref_name.include, exclude: .conditions.ref_name.exclude, rules: [.rules[].type], bypass: [.bypass_actors[] | {actor_id, actor_type, bypass_mode}]}' "$WORK/ruleset-$id.json"
 done
+MEID=$(gh api --hostname github.com --method GET -H "$GHV" 'user' | jq -r '.id')
+jq -r --argjson me "$MEID" '[.name, ([.bypass_actors[] | select(.actor_type == "User" and .actor_id == $me)] | length), (.bypass_actors | length)] | @tsv' "$WORK"/ruleset-*.json
 ```
+
+The last command compares each ruleset's bypass actors with the verified account
+without printing the identifier: the columns are the ruleset name, the number of
+bypass actors that are that account, and the number of bypass actors. Operator-only
+rulesets (`ezop-rebase`, `main-operator-only`, `tags-operator-only`) must show 1 and
+1; the others must show 0 and 0. A different user, or a second actor, is a stop.
 
 Pass, per the `FORK.md` table: `main-mirror` (branch, `refs/heads/main`: deletion
 and non-fast-forward, no bypass), `fork-release-tags` (tag, `refs/tags/v*-ezop.*`:
@@ -385,6 +433,17 @@ missing or different. Whether any of these rulesets binds a workflow's
 `GITHUB_TOKEN`, and whether the layers compose as intended, is part of Q3 and is
 not proven by the readback.
 
+**Observed 2026-11-07 (read back from the saved responses).**
+`main-operator-only` (id 26741791): branch `refs/heads/main`, rule `update`
+(`update_allows_fetch_and_merge: false`), bypass user `Ezopek`, always.
+`tags-operator-only` (id 26741823): tag `refs/tags/v*`, rules `creation`, `update`
+(same parameter) and `deletion`, bypass user `Ezopek`, always. Both are active and
+sit beside the four recorded rulesets, which were not changed (`main-mirror` was
+read back unchanged). `fork-release-tags` keeps its no-bypass update and deletion
+rules on `v*-ezop.*`, so fork release tags stay immutable even for the operator.
+In both new rulesets the single bypass actor is that account: its id equals the
+account id in the account's commit address (compared offline, not reproduced here).
+
 ### 2.5 Step 5: the option-specific state
 
 Apply section 2.9 (option A) or section 2.10 (option B), whichever D1 recorded.
@@ -400,15 +459,16 @@ or a failed read.
 ### 2.6 Step 6: a fresh preflight
 
 Run the whole Run-Inventory Preflight (section 3) now, inside the push freeze.
-A settings change other than the chosen option's own bracketed steps voids it.
+A settings change other than the chosen option's own bracketed steps and the planned transitions of section 2.7a voids it.
 Stop: any stop in section 3; a push, new run, re-enable or workflow change in the
 window.
 
 ### 2.7 Step 7: enable Actions, last
 
-Do not start if the preflight is stale or the freeze was broken. Choose a start
-that keeps all of steps 2.7 and 2.8 clear of 00:00 and 01:00 UTC, and check the
-clock first:
+Do not start if the preflight is stale or the freeze was broken. Under option B
+the enable is the bounded attempt of section 2.7a, not a plain switch. Choose a
+start that keeps all of steps 2.7 and 2.8 clear of 00:00 and 01:00 UTC, and check
+the clock first:
 
 ```sh
 date -u +%Y-%m-%dT%H:%M:%SZ
@@ -430,12 +490,75 @@ To turn Actions off again (the safe direction, any time a check fails), the same
 **Manual Operator write** with `-F enabled=false`, then read back `enabled:
 false`.
 
+### 2.7a Option B: the bounded enable, enumerate and disable
+
+The inherited paths cannot be read or disabled while Actions are off (404, section
+2.2), so under option B they can only be disabled after the switch is on. This is
+a bounded **attempt**, not a proof: GitHub documents no atomic enable-and-disable,
+zero runs does not show that no event is waiting, and nothing here claims that
+enabling starts nothing. It is one uninterrupted sequence by one person, inside
+the freeze: its single enable and its disables are the planned transitions of the
+procedure and do not void the preflight, and every other change does (section
+3.9). The controls:
+
+1. **Before the single enable.** The preflight of section 3 passed fresh inside
+   the freeze: no push, merge, dispatch, re-run, workflow change or competing
+   settings change by anyone, the Operator included, until the attempt ends.
+   `default_branch` reads `ezop`. The `main-mirror`, `main-operator-only` and
+   `tags-operator-only` rulesets read back as recorded. The readback breadth of
+   section 4 is complete, **deploy keys and installed apps with write access
+   included**; a missing read or an unverified item is a stop. The exact heads of
+   `main` and `ezop` and the workflow file ids of both are written down. No
+   `v*-ezop.*` tag is pushed.
+2. **One enable**, the write of step 2.7, and nothing else in between. Do not
+   push to `main`: that starts `web.yml` and `ci.yml` from `main`'s own files.
+3. **At once**, list the workflows and the runs, then disable every registered
+   inherited path by id, `web.yml` first, and read each state back separately.
+
+```sh
+gh api --hostname github.com --method GET -H "$GHV" --paginate --slurp 'repos/Ezopek/proton-cli/actions/workflows?per_page=100' > "$WORK/wf-after-enable.json"
+jq -r '.[].workflows[] | [.id, .path, .state] | @tsv' "$WORK/wf-after-enable.json"
+gh api --hostname github.com --method GET -H "$GHV" --paginate --slurp 'repos/Ezopek/proton-cli/actions/runs?per_page=100' > "$WORK/runs-after-enable.json"
+jq -c '[.[].workflow_runs[] | [.id, .run_attempt, .status, .conclusion, .updated_at]] | sort' "$WORK/runs-after-enable.json" | diff "$WORK/runs-fresh.sig" - && echo "runs unchanged"
+```
+
+   **Manual Operator write**, once per registered inherited path (**Unverified
+   until first use**; the documented success answer is 204):
+
+```sh
+WID=THE_ID_FROM_THE_LISTING
+gh api --hostname github.com --method PUT -H "$GHV" "repos/Ezopek/proton-cli/actions/workflows/${WID:?}/disable"
+gh api --hostname github.com --method GET -H "$GHV" "repos/Ezopek/proton-cli/actions/workflows/${WID:?}" | jq -r '.state'
+```
+
+4. **Pass** (the Verified Activation condition under option B): `web.yml` is
+   registered and reads `disabled_manually`; every other inherited path reads
+   `disabled_manually` or is not registered; the list otherwise holds only
+   `ci.yml` and `fork-release.yml`; `runs unchanged` printed; refs, tags, pull
+   requests and settings are unchanged. Then go on to step 2.8.
+5. **Stop at once**, turn Actions off and read back `enabled: false`, on any run
+   that started, workflow that appeared and is not expected, ref that moved,
+   permission or setting that changed, ambiguous answer, or required disable that
+   did not succeed. Then list every non-terminal run, cancel the unsafe ones, read
+   each to a terminal state, keep the completed-job evidence, and inspect refs,
+   releases, artifacts and any outside effect. Do not delete evidence, re-run an
+   inherited workflow, or move or delete a tag.
+6. **If `web.yml` is not registered after the enable (the 404 persists), it cannot
+   be disabled and this is not Verified Activation.** Roll back as in 5, and do
+   not trigger the workflow to make it register. The fallback is a separate,
+   recorded decision prepared while Actions are off: remove the owner bypass from
+   the `main` update restriction and freeze `main` for the activation and release
+   window, and restrict the allowed actions to the exact pinned set that the two
+   workflows on `ezop` use (an allow-list alone does not contain a shell step).
+   Amend these criteria before trying again.
+
 ### 2.8 Step 8: the post-enable readback, inside the freeze (Verified Activation)
 
 Run, in this order:
 
-1. The four states again (the loop in step 2.2). Pass: all four
-   `disabled_manually`.
+1. The inherited paths again. Option A: the loop in step 2.2, pass all four
+   `disabled_manually`. Option B: the listing and the states of section 2.7a, pass
+   as in the reading rule of section 2.2.
 2. The run list again, written to a new file and compared with the signature that
    section 3.10 saved just before enabling. Pass: `runs unchanged`, which means
    no new run and no run re-run or changed.
@@ -465,7 +588,10 @@ Repeat from step 2.2 only after that decision.
 `main` stays the default branch. `ci.yml` stays enabled: it is read-only
 (`contents: read`, no secret) and runs on pull requests and on pushes to `main`.
 The four Upstream paths are disabled repository-wide in step 2.2 and read back
-as `disabled_manually` while Actions are off. Before enabling, the approved FR-14 path to the
+as `disabled_manually` while Actions are off. (Observed 2026-11-07: while Actions
+were off those reads returned 404, so under A this readback could only be met by
+the attempt of section 2.7a. Option A was not chosen.) Before enabling, the
+approved FR-14 path to the
 Drift Guard must be recorded (section 1.1): its owner, the trigger and
 default-branch arrangement, its timing relative to #1 and #2, and the viability
 proof. `schedule`, `workflow_dispatch` and `repository_dispatch` all need the
@@ -481,10 +607,15 @@ it.
 ### 2.10 Option B
 
 The default branch is set to `ezop` by explicit Operator decision, with a
-`FORK.md` amendment. GitHub does not let the default branch of a repository be
-changed while it is protected against force pushes unless the actor can bypass
-the ruleset, and `main-mirror` has no bypass, so this needs a bracketed
-adjustment of `main-mirror`. All of it happens before the preflight.
+`FORK.md` amendment. **Chosen and done (observed 2026-11-07):** the default
+branch was changed with one `PATCH` while `main-mirror` stayed active with no
+bypass, and the provider accepted it. `main` and `ezop` kept their exact SHAs and
+`main-mirror` read back unchanged. The first attempt returned HTTP 400 and changed
+nothing; the one that succeeded passes a JSON body on standard input (step 3). The
+documentation says a branch protected against force pushes cannot have its default
+changed unless the actor can bypass the ruleset; that did not apply here, so the
+bracketed adjustment of `main-mirror` below was not used. It stays as the fallback
+if a future change is refused. All of it happens before the preflight.
 
 **First, the safe `ezop` tree, read back before the default branch changes.**
 `ezop` drops the four inherited Upstream workflows (`release.yml`,
@@ -494,8 +625,8 @@ the default branch, and Upstream's `openapi-sync.yml` does not become the Drift
 Guard by default (D2 stays open). The only workflows allowed on `ezop` are
 `ci.yml`, `fork-release.yml` and a Drift Guard that D2 has approved (none exists
 yet). `web.yml` has a `push`-to-`main` trigger that still reads the file on
-`main`, so it is handled by the path disable of step 2.2 and must read
-`disabled_manually`. Read the tree back:
+`main`, so it must be positively disabled during the bounded enable of section
+2.7a (a 404 is not a disable). Read the tree back:
 
 ```sh
 cd "$CLONE"
@@ -530,19 +661,21 @@ jq -S '{name, target, enforcement, conditions, rules, bypass_actors}' "$WORK/mai
 git ls-remote origin refs/heads/main | cut -f 1 > "$WORK/main-sha-before.txt"; cat "$WORK/main-sha-before.txt"
 ```
 
-2. **Manual Operator write.** Adjust `main-mirror` (the smallest change that
+2. **Manual Operator write, only if step 3 is refused.** Adjust `main-mirror` (the smallest change that
    lets the Operator change the default branch; write down which fields you
    changed). **Unverified until first use**: use the repository settings (no
    command) or `gh api --method PUT` on `repos/Ezopek/proton-cli/rulesets/$MM`
    with the body GitHub's documentation for updating a ruleset names.
-3. **Manual Operator write.** Change the default branch:
+3. **Manual Operator write.** Change the default branch (the form that succeeded
+   on 2026-11-07 passes the body as JSON on standard input):
 
 ```sh
-gh api --hostname github.com --method PATCH -H "$GHV" 'repos/Ezopek/proton-cli' -f default_branch=ezop
+printf '{"default_branch":"ezop"}' | gh api --hostname github.com --method PATCH -H "$GHV" 'repos/Ezopek/proton-cli' --input -
 ```
 
-4. **Manual Operator write.** Restore `main-mirror`, field by field, to the
-   `FORK.md` table, then read it back and compare with the saved copy. Do this
+4. **Manual Operator write, only if step 2 was used.** Restore `main-mirror`,
+   field by field, to the `FORK.md` table, then read it back and compare with the
+   saved copy. If step 2 was not used, only read it back and compare. Do this
    also when step 2 or step 3 fails or applies only in part: an adjusted
    `main-mirror` is never left as it is. **Unverified until first use**, the
    restore can be a write of the saved fields (or the repository settings):
@@ -565,15 +698,16 @@ diff "$WORK/main-mirror-before.norm.json" "$WORK/main-mirror-after.norm.json" &&
 git ls-remote origin refs/heads/main | cut -f 1 | diff - "$WORK/main-sha-before.txt" && echo "main unchanged"
 ```
 
-6. Repeat the readbacks of step 2.3 (secrets), step 2.4 (settings, including the
-   four rulesets) and step 2.2 (the four states). All four paths must read
-   `disabled_manually`, as at every other readback (2.8, 3.10). A path that reads
-   `deleted`, or is not listed, is a Q1 failure: record it in words, keep Actions
-   off and return D1 to the Operator. This runbook does not pass it on the
-   Operator's behalf.
+6. Repeat the readbacks of step 2.3 (secrets) and step 2.4 (settings, including
+   the rulesets), and read the inherited paths of step 2.2. While Actions are off
+   they return 404: record that as "not registered", which is neither a pass nor
+   a disabled state. The pass for those paths is decided at the bounded enable of
+   section 2.7a. A state of `deleted`, or any other unexpected state, is recorded
+   in words and stops the activation.
 
-Pass: `default_branch` reads `ezop`, the `diff` printed nothing, `main` is
-unchanged, and the repeated readbacks pass. If the default branch did not change,
+Pass: `default_branch` reads `ezop`, `main` is unchanged, `main-mirror` reads
+back as saved (and the `diff` printed nothing, if the bracket was used), and the
+repeated readbacks pass. If the default branch did not change,
 restore as step 4 says and stop. A failed restore keeps Actions off
 and is handled as an incident: `main` is checked against the recorded SHA and
 D1 returns to the Operator. Stop: any step above that does not pass.
@@ -706,10 +840,19 @@ preflight and is retried after the cause is understood: a persistent `unknown` i
 never a retry loop, it is investigated (section 7). Before the first release
 there is no tag and no run: record "none".
 
-Under option A, `fork-release.yml` exists only on `ezop`. Whether the API lists
-it, and so whether the `FRID` read above succeeds, before its first run is not
-established. A not-found answer there is recorded as such and is not a stop on
-its own; coverage (section 3.7) rests on the branches.
+`fork-release.yml` may not be registered yet: under option A it exists only on
+`ezop`, and under option B no workflow is registered while Actions are off
+(observed 2026-11-07). A not-found answer for the `FRID` read is recorded as such
+and is not a stop **only if** the complete run list holds no run of that workflow;
+skip the join then, and coverage (section 3.7) rests on the branches. Check:
+
+```sh
+jq '[.[].workflow_runs[] | select(.path == ".github/workflows/fork-release.yml")] | length' "$WORK/runs.json"
+```
+
+Pass: `0` (the `path` field is **Unverified until first use**). Any other number
+makes a not-found answer a stop. An authentication or authorization error, an
+ambiguous answer or any other failed read is a stop in every case.
 
 ### 3.7 Workflow coverage
 
@@ -851,7 +994,11 @@ Pass: every Upstream-shaped tag on origin peels to the same commit as on
 sections 6 and 7, never by re-tagging. Stop: any tag that differs.
 
 The sweep never assumes that a workflow is disabled. Disabled states come from
-step 2.2, and an unreadable state fails the preflight.
+step 2.2 (under option B, from section 2.7a), and an unreadable state fails the
+preflight. Under option B the expected 404 for the four inherited paths while
+Actions are off is a readable answer: it is recorded as "not registered", not as
+disabled. An authentication or authorization error, an ambiguous answer or any
+other failed read still fails the preflight.
 
 ### 3.9 The push freeze and what voids it
 
@@ -859,8 +1006,11 @@ Pushes, tag pushes included, are frozen from the start of the preflight until
 Verified Activation. Any of these in the window voids the preflight: a push to
 any ref (by anyone, including GitHub-side ref creation, section 4), a new run, a
 re-enable of Actions, a workflow change, a settings change other than the chosen
-option's own bracketed steps. A tag pushed in the window stays immutable and is
-verified or abandoned like any other (section 7). When the preflight is voided,
+option's own bracketed steps. The single enable and the disables listed in
+section 2.7a are the planned transitions inside the window: they are part of the
+procedure and do not void the preflight; every other re-enable, settings change,
+push, run or workflow change does. A tag pushed in the window stays immutable and
+is verified or abandoned like any other (section 7). When the preflight is voided,
 Actions stay off (or are turned off at once) and the preflight starts again at
 section 3.1 with new files.
 
@@ -884,7 +1034,10 @@ gh api --hostname github.com --method GET -H "$GHV" 'repos/Ezopek/proton-cli/act
 The chosen option's actual preconditions must also be in force at this moment, and
 a readback that shows otherwise fails the preflight (there is no second, looser
 variant). Under option A, the four states above read `disabled_manually` and
-`default_branch` reads `main`. Under option B, the `ezop` tree is the safe one
+`default_branch` reads `main`. Under option B, the four reads above return 404
+while Actions are off (observed 2026-11-07): record that as "not registered",
+which is neither a pass nor a disabled state, and decide the inherited paths at
+section 2.7a. Also under option B, the `ezop` tree is the safe one
 (the listing, the trigger greps and `guard --profile release` of section 2.10,
 run again against the freshly listed tip) and `default_branch` already reads
 `ezop`:
@@ -893,7 +1046,8 @@ run again against the freshly listed tip) and `default_branch` already reads
 gh api --hostname github.com --method GET -H "$GHV" 'repos/Ezopek/proton-cli' | jq -r '.default_branch'
 ```
 
-Pass: the three `unchanged` lines print, all four states read `disabled_manually`,
+Pass: the three `unchanged` lines print, under option A all four states read
+`disabled_manually` (under option B the four reads are recorded as above),
 `enabled` is `false`, and the option's preconditions above hold. Stop: any
 difference or failed read. The same lists are read again at step 2.8.
 
@@ -913,7 +1067,11 @@ gh api --hostname github.com --method GET -H "$GHV" --paginate --slurp 'repos/Ez
 
 **Installed apps with write access.** No command; read the account's installed
 GitHub Apps in the settings and, for each, whether it can reach this repository
-with write access. Pass: none with write access. Record the count.
+with write access. Pass: none with write access. Record the count. As of
+2026-11-07 this inventory is **not verified**: `GET repos/Ezopek/proton-cli/installation`
+answered 401 because that endpoint needs a GitHub App token and is not an
+inventory. Until the settings read is done, the bounded enable of section 2.7a
+does not start.
 
 **Pages.** Pass: HTTP 404 (not configured) is unused. Any other answer is
 recorded and is a stop until the Operator decides.
@@ -1036,14 +1194,14 @@ values.
 - Open pull requests <n>: same repository <n>, outside or null head <n>; closed <n>; left pending <n>
 - Upstream-shaped tags compared with upstream: <n>, all same <yes>
 - Push freeze: start <time UTC>, end <time UTC>; voided <no>
-- Fresh readback before enabling (time UTC): refs unchanged <yes>; runs unchanged <yes>; pull requests unchanged <yes>; four states <disabled_manually x4>
+- Fresh readback before enabling (time UTC): refs unchanged <yes>; runs unchanged <yes>; pull requests unchanged <yes>; inherited paths <state, or not registered (404), each>
 
 ## Readback breadth
 - deploy keys <unused | n, none writable>; installed apps with write access <n>; Pages <unused>; dynamic workflows <none>; code scanning default setup <state>; Dependabot secrets <n>; Actions variables <n> repository, <n> environments; merge queue <unused>; Dependabot <unused | swept>; web-UI branch restore and update <unused | swept>
 
 ## Enable and Verified Activation
 - Enabled at <time UTC> (not 00:00 or 01:00 UTC): enabled <true>; allowed_actions <value, unchanged>
-- Post-enable readback inside the freeze (time UTC): four states <disabled_manually x4>; run count <n> equals the preflight count; new runs <0>; refs, tags and pull requests unchanged <yes>; settings unchanged <yes>
+- Post-enable readback inside the freeze (time UTC): inherited paths <state, or not registered, each; web.yml disabled_manually>; run count <n> equals the preflight count; new runs <0>; refs, tags and pull requests unchanged <yes>; settings unchanged <yes>
 - Verified Activation: <yes, at time UTC>
 
 ## First-use observations
@@ -1791,8 +1949,11 @@ risk solved that is not.
   listed while the repository switch is off. Also open: what the readback shows
   after Actions are switched off and on again and after a default-branch change,
   whether option B shows the four paths as `deleted`, and whether a completed run
-  of a disabled workflow can be re-run. Consequence: any answer that is not a clear
-  yes keeps Actions off.
+  of a disabled workflow can be re-run. Observed 2026-11-07, Actions off: reads and
+  a disable of the four inherited paths returned HTTP 404, which is not a state;
+  whether they register once Actions are on is read at section 2.7a.
+  Consequence: any answer that is not a clear yes keeps Actions off, and under
+  option B the paths are decided at section 2.7a.
 - **Q2: a newly arrived workflow.** Whether it is registered and can be disabled
   while Actions are off is only observable after the `main` fast-forward, which
   cannot be undone. The offline checks run first; if Q2 fails, Actions stay off
@@ -1842,13 +2003,9 @@ risk solved that is not.
   request approval policy, and the endpoints of section 4, are unverified. A
   helper that is stale but landed is accepted by the helper itself; the recipe is
   to build the tip you have just fetched.
-- **`FORK.md` wording not yet adopted.** The `FORK.md` › Releasing proposals that
-  accompany this runbook (full Pre-Tag Gates on every release, the first tag only
-  after Verified Activation, verification before Handover with one terminal
-  record per tag, `guard --pre-push` before every tag push, abandoned releases
-  never deleted, and the retry rule) are proposals until the Operator approves
-  them. Until then `FORK.md` governs wherever it differs, and this runbook is
-  stricter, never looser, than its retry wording.
+- **`FORK.md` wording.** The Releasing, Following Upstream and Conventions rules
+  this runbook relies on are in `FORK.md` (merged 2026-11-07). If they disagree
+  with this runbook, `FORK.md` wins and the runbook is corrected.
 - **Toolchain currency.** The accepted pin (Go 1.27.0, GoReleaser 2.17.1) is kept;
   later Go point releases exist, so a binary built from it carries the 1.27.0
   standard library. Moving the pin is its own reviewed change, not a gate here.
