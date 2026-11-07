@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 11-05-2026 23:47
-last_updated: 11-07-2026 00:05
+last_updated: 11-07-2026 01:15
 project: proton-cli
 project_key: NOKEY
 tracking_system: file-system
@@ -45,7 +45,7 @@ development_status:
   1-7-the-operator-can-verify-a-release-and-read-its-status: review
   1-8-a-tag-is-pushed-only-after-guard-pre-push: review
   1-9-the-fork-release-workflow-turns-a-tag-into-a-fork-release: review
-  1-10-the-activation-runbook-is-written-for-options-a-and-b: backlog
+  1-10-the-activation-runbook-is-written-for-options-a-and-b: review
   1-11-the-operator-activates-actions-through-the-runbook-operator: backlog
   1-12-the-bootstrap-release-v5-1-0-ezop-1-becomes-a-verified-fork: backlog
   epic-1-retrospective: optional
