@@ -91,7 +91,7 @@ These are the listings that can be narrowed, and what narrows them. The same fla
 - `proton pass settings mailboxes list --desc --limit int --page int --sort string`
 - `proton pass shared list --desc --limit int --page int --sort string`
 - `proton pass sharing list --desc --limit int --page int --sort string`
-- `proton pass trash list --desc --limit int --page int --sort string`
+- `proton pass trash list --desc --limit int --page int --sort string --vault string`
 - `proton pass vaults list --desc --limit int --page int --sort string`
 - `proton account breaches list --limit int --page int`
 - `proton account profiles list --desc --limit int --page int --sort string`

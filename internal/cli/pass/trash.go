@@ -19,13 +19,18 @@ func trashCmd() *cobra.Command {
 
 func trashListCmd() *cobra.Command {
 	var held kit.Held[passsvc.Item]
+	var vault string
 	c := &cobra.Command{
 		Use:   "list",
 		Short: "List what is in the trash",
 		Long: "List what is in the trash.\n\n" +
-			"What a hidden vault holds in its trash is left out.",
+			"What a hidden vault holds in its trash is left out unless --vault names it.",
 		RunE: kit.Run(nil, func(c *kit.Invocation) error {
-			items, err := c.App.Pass.ItemsTrashed(c.Ctx)
+			vaultRef, err := kit.Expand(c.App, vault)
+			if err != nil {
+				return err
+			}
+			items, err := c.App.Pass.ItemsTrashed(c.Ctx, vaultRef)
 			if err != nil {
 				return err
 			}
@@ -34,6 +39,7 @@ func trashListCmd() *cobra.Command {
 			}, items)
 		}),
 	}
+	c.Flags().StringVar(&vault, "vault", "", "Match only this vault, by name or ID")
 	held.Register(c, "items",
 		kit.Key[passsvc.Item]{Name: "name", Less: func(a, b passsvc.Item) int { return kit.Fold(a.Name, b.Name) }},
 		kit.Key[passsvc.Item]{Name: "type", Less: func(a, b passsvc.Item) int { return kit.Fold(a.Type, b.Type) }},
@@ -77,7 +83,7 @@ func trashEmptyCmd() *cobra.Command {
 			"What a hidden vault holds in its trash is left alone. `vaults unhide` brings\n" +
 			"it back into reach.",
 		RunE: kit.Run(nil, func(c *kit.Invocation) error {
-			items, err := c.App.Pass.ItemsTrashed(c.Ctx)
+			items, err := c.App.Pass.ItemsTrashed(c.Ctx, "")
 			if err != nil {
 				return err
 			}
@@ -103,7 +109,7 @@ func trashTargets(c *kit.Invocation, all bool) ([]passsvc.Item, error) {
 		if len(c.Args) > 0 {
 			return nil, kit.Fail("--all restores everything, so it takes no REF.")
 		}
-		return c.App.Pass.ItemsTrashed(c.Ctx)
+		return c.App.Pass.ItemsTrashed(c.Ctx, "")
 	}
 	if len(c.Args) == 0 {
 		return nil, kit.Fail("Nothing selected.").
