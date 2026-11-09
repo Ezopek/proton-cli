@@ -1333,10 +1333,12 @@ var examples = map[string][]string{
 		"proton pass items create --type note --name 'Door codes' --note 'Front: 1234'",
 		"proton pass items create --type credit-card --name 'Travel card' --holder 'Roman' --expiry 2030-04 --secret-file number=/run/secrets/card",
 		"proton pass items create --type custom --name Router --field 'Network/SSID=home' --secret-file 'Network/Key=/run/secrets/wifi'",
+		"proton pass items create --name GitHub --url github.com --secret-frames - < frames.txt",
 	},
 	"proton pass items update": {
 		"proton pass items update GitHub --secret-file password=/run/secrets/github",
 		"proton pass items update GitHub --secret-file password=-",
+		"proton pass items update GitHub --secret-frames - < frames.txt",
 		"proton pass items update GitHub --username roman-16 --url github.com",
 		"proton pass items update GitHub --url github.com --url exact-url:https://github.com/login",
 		"proton pass items update GitHub --generate-password",

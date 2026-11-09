@@ -189,6 +189,7 @@ var Flags = map[string]Flag{
 	"scope":                  {Means: "the Drive subtree to look in"},
 	"second-phone":           {Means: "a second phone number"},
 	"secret-file":            {Means: "where to read a secret field from, as NAME=FILE; - is stdin"},
+	"secret-frames":          {Means: "read the password, the note, the username and the email from stdin as length-prefixed frames"},
 	"security":               {Means: "a Wi-Fi security protocol"},
 	"send-at":                {Means: "when to deliver"},
 	"separator":              {Means: "what stands between the words of a passphrase"},

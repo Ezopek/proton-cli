@@ -60,6 +60,19 @@ func (s *Secrets) Supply(c *Invocation) error {
 	return nil
 }
 
+// Fields are the field names --secret-file was given, judged from the command
+// line alone. A token that is not NAME=FILE is left for Supply and Values to
+// refuse.
+func (s *Secrets) Fields() []string {
+	out := make([]string, 0, len(s.files))
+	for _, pair := range s.files {
+		if field, _, err := splitSecret(pair); err == nil {
+			out = append(out, field)
+		}
+	}
+	return out
+}
+
 // splitSecret reads one NAME=FILE pair.
 func splitSecret(pair string) (field, path string, err error) {
 	field, path, ok := strings.Cut(pair, "=")

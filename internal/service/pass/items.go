@@ -850,6 +850,20 @@ func (s *Service) ItemEdit(ctx context.Context, shareID, itemID string, patch Pa
 		return err
 	}
 	it := read.raw
+	// A password for an item that has none would be sealed and sent back unchanged and reported as an edit. Refused here, after
+	// the one read and before anything is changed, sealed or sent; the refusal names the kind, never a value.
+	if patch.Password != "" && !hasPassword(it) {
+		return errs.Problemf("A %s item has no password to change, so nothing was written.", itemTypeName(it))
+	}
+	// The same for a username, which only a login has, and an email, which a login and an identity have.
+	_, isLogin := it.GetContent().GetContent().(*pb.Content_Login)
+	_, isIdentity := it.GetContent().GetContent().(*pb.Content_Identity)
+	if patch.Username != "" && !isLogin {
+		return errs.Problemf("A %s item has no username to change, so nothing was written.", itemTypeName(it))
+	}
+	if patch.Email != "" && !isLogin && !isIdentity {
+		return errs.Problemf("A %s item has no email to change, so nothing was written.", itemTypeName(it))
+	}
 	if it.Metadata == nil {
 		it.Metadata = &pb.Metadata{}
 	}
@@ -1248,6 +1262,15 @@ func keptPasskeys(have []*pb.Passkey, remove []string) []*pb.Passkey {
 		}
 	}
 	return out
+}
+
+// hasPassword reports whether ItemEdit has a password to set on this kind of item: a login's and a Wi-Fi network's.
+func hasPassword(it *pb.Item) bool {
+	switch it.GetContent().GetContent().(type) {
+	case *pb.Content_Login, *pb.Content_Wifi:
+		return true
+	}
+	return false
 }
 
 func itemTypeName(it *pb.Item) string {

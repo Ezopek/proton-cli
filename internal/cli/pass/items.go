@@ -386,6 +386,22 @@ var sharedWithEveryItem = map[string]bool{"email": true}
 // An empty type is one not yet known, which is what an edit has until the item
 // is fetched: the grammar can still be judged, the placement cannot.
 func (d *fields) checkFields(itemType string) error {
+	if err := d.checkFrames(); err != nil {
+		return err
+	}
+	// Only a login and a Wi-Fi network keep a password. A frame for any other kind would be accepted and dropped by the create, so it is
+	// refused here, where the kind is known and before the network. An edit does not know its kind yet (it is "") and the service refuses it.
+	if _, ok := d.frames.Value("password"); ok && itemType != "" && itemType != "login" && itemType != "wifi" {
+		return kit.Fail("A %s item has no password, so --secret-frames cannot set one.", itemType).Hint("send only the note frame")
+	}
+	// The username belongs to a login; the email to a login and to an identity (the identity's email is the same --email). A frame for any
+	// other kind would be accepted and dropped, so it is refused here, where the kind is known. An edit's kind is "" and the service decides.
+	if _, ok := d.frames.Value("username"); ok && itemType != "" && itemType != "login" {
+		return kit.Fail("A %s item has no username, so --secret-frames cannot set one.", itemType).Hint("send only the frames the item has")
+	}
+	if _, ok := d.frames.Value("email"); ok && itemType != "" && itemType != "login" && itemType != "identity" {
+		return kit.Fail("A %s item has no email, so --secret-frames cannot set one.", itemType).Hint("send only the frames the item has")
+	}
 	rules, err := urlRules(d.urls)
 	if err != nil {
 		return err
@@ -490,6 +506,8 @@ type fields struct {
 	// secrets are the parts of an item that argv may not carry, and generate is
 	// the way to have one that never existed anywhere else.
 	secrets  kit.Secrets
+	frames   kit.Frames
+	folded   bool
 	generate bool
 	gen      generator
 	// attach are local files to put on the item, and detach names the ones to
@@ -539,6 +557,38 @@ func secretFieldNames() string {
 	return strings.Join(names, ", ")
 }
 
+// checkFrames refuses a password, a note, a username or an email that two routes both carry, so it is
+// never left unsaid which one would have been stored. It is answerable from the
+// command line alone, so it runs before the network.
+func (d *fields) checkFrames() error {
+	if d.folded { // the frames are already in the item, so the note it holds is theirs
+		return nil
+	}
+	if _, ok := d.frames.Value("note"); ok && d.nc.Note != "" {
+		return kit.Fail("--note and --secret-frames both set the note.").Hint("drop one of them")
+	}
+	// The same refusal for the two login fields that now have a frame: a value two routes carry is never silently resolved. (There is
+	// no --secret-file route for either: a --secret-file named username or email is a custom field, which is a different thing.)
+	if _, ok := d.frames.Value("username"); ok && d.nc.Username != "" {
+		return kit.Fail("--username and --secret-frames both set the username.").Hint("drop one of them")
+	}
+	if _, ok := d.frames.Value("email"); ok && d.nc.Email != "" {
+		return kit.Fail("--email and --secret-frames both set the email.").Hint("drop one of them")
+	}
+	if _, ok := d.frames.Value("password"); !ok {
+		return nil
+	}
+	taken := d.generate
+	for _, field := range d.secrets.Fields() {
+		taken = taken || field == "password"
+	}
+	if taken {
+		return kit.Fail("--secret-frames and another source both set the password.").
+			Hint("drop one of them")
+	}
+	return nil
+}
+
 // readSecrets folds what --secret-file carried into the item.
 //
 // A name the item type knows is that field; anything else is a custom field,
@@ -549,6 +599,25 @@ func (d *fields) readSecrets(c *kit.Invocation) error {
 	if err != nil {
 		return err
 	}
+	// What arrived as frames goes straight to the item's own password, note, username
+	// and email, never through the custom-field route below, so a custom field that is
+	// called by one of those words cannot be reached from here and is not touched.
+	if err := d.checkFrames(); err != nil {
+		return err
+	}
+	if v, ok := d.frames.Value("password"); ok {
+		d.nc.Password = v
+	}
+	if v, ok := d.frames.Value("note"); ok {
+		d.nc.Note = v
+	}
+	if v, ok := d.frames.Value("username"); ok {
+		d.nc.Username = v
+	}
+	if v, ok := d.frames.Value("email"); ok {
+		d.nc.Email = v
+	}
+	d.folded = true
 	if d.generate {
 		password, err := d.gen.make()
 		if err != nil {
@@ -601,6 +670,7 @@ func (d *fields) register(c *cobra.Command, verb string) {
 	f.StringVar(&d.nc.SSID, "ssid", "", verb+" the network name (wifi)")
 	f.StringVar(&d.nc.PublicKey, "public-key", "", verb+" the public key (ssh-key)")
 	d.secrets.Declare(c)
+	d.frames.Declare(c)
 	f.BoolVar(&d.generate, "generate-password", false, "Make the password rather than being given one")
 	d.gen.register(c)
 	// An identity's fields are declared once in the service; the flags are made
@@ -708,6 +778,15 @@ func itemsCreateCmd() *cobra.Command {
 			"and - as the file reads standard input.\n" +
 			"NAME is " + secretFieldNames() + ",\n" +
 			"or any name at all, which makes a hidden custom field of it.\n\n" +
+			"--secret-frames - reads the password, note, username and email from standard\n" +
+			"input exactly as sent, with no trimming. Standard input is the line\n" +
+			"secret-frames/1, then one frame per field: NAME:LENGTH, a newline, LENGTH\n" +
+			"bytes, a newline. NAME is password, note, username or email, each at most\n" +
+			"once and never empty, and the input is at most 1 MiB. A frame sets the item's\n" +
+			"own field, never a custom field of the same name, and is refused beside\n" +
+			"--note, --username, --email, --secret-file or --generate-password setting\n" +
+			"that field. Only a login has a username, and only a login or an identity has\n" +
+			"an email.\n\n" +
 			"--generate-password makes one instead, so a new login needs no file: it is\n" +
 			"shaped by the same flags `pass generate` takes.\n\n" +
 			"--url takes an address, which fills on it, its parent domain and their\n" +
@@ -719,7 +798,7 @@ func itemsCreateCmd() *cobra.Command {
 		// What a field says, whether this kind of item has a section to put it
 		// under, and whether a file named by --attach is there to be read are all
 		// answerable from the command line alone.
-		RunE: kit.Run([]kit.Step{d.secrets.Supply, func(*kit.Invocation) error {
+		RunE: kit.Run([]kit.Step{d.secrets.Supply, d.frames.Supply, func(*kit.Invocation) error {
 			kind, err := itemType.Value()
 			if err != nil {
 				return err
@@ -815,6 +894,18 @@ func itemsUpdateCmd() *cobra.Command {
 			"and - as the file reads standard input.\n" +
 			"NAME is " + secretFieldNames() + ",\n" +
 			"or any name at all, which makes a hidden custom field of it.\n\n" +
+			"--secret-frames - reads the password, note, username and email from standard\n" +
+			"input exactly as sent, with no trimming. Standard input is the line\n" +
+			"secret-frames/1, then one frame per field: NAME:LENGTH, a newline, LENGTH\n" +
+			"bytes, a newline. NAME is password, note, username or email, each at most\n" +
+			"once and never empty, and the input is at most 1 MiB. A frame sets the item's\n" +
+			"own field, never a custom field of the same name, and is refused beside\n" +
+			"--note, --username, --email, --secret-file or --generate-password setting\n" +
+			"that field. Only a login has a username, and only a login or an identity has\n" +
+			"an email.\n\n" +
+			"A password, username or email given for an item that has none is refused,\n" +
+			"however it is given: a password needs a login or a Wi-Fi item, a username a\n" +
+			"login, and an email a login or an identity.\n\n" +
 			"--generate-password replaces the password with one it makes.\n\n" +
 			"--url replaces every URL the login has, and takes the rules `items create`\n" +
 			"lists: exact-host:, exact-url:, starts-with:, pattern: and never:.\n\n" +
@@ -826,7 +917,7 @@ func itemsUpdateCmd() *cobra.Command {
 		// Whether the item has a section to put a field under depends on what
 		// kind it is, which is not known until it is read; what a field says, and
 		// whether a file named by --attach is there to be read, are known now.
-		RunE: kit.Run([]kit.Step{kit.StepExpand, d.secrets.Supply, func(c *kit.Invocation) error {
+		RunE: kit.Run([]kit.Step{kit.StepExpand, d.secrets.Supply, d.frames.Supply, func(c *kit.Invocation) error {
 			if err := a.check(c); err != nil {
 				return err
 			}
