@@ -251,7 +251,7 @@ const (
 //
 // The vaults are read at the same time and their items joined in the order the
 // vaults came in, so the answer does not depend on which vault replied first. A
-// vault that cannot be read is left out.
+// vault that cannot be read is left out and counted as skipped.
 //
 // A vault named by vaultFilter is read whether it is hidden or not; with none
 // named, r decides whether the hidden ones are.
@@ -290,10 +290,12 @@ func (s *Service) itemsFull(ctx context.Context, vaultFilter string, r reach, wi
 		fetches[i] = func(ctx context.Context) error {
 			sk, err := s.decryptShareKeys(ctx, v.ShareID)
 			if err != nil {
+				skip.Record(ctx, skip.KindVault, v.ShareID, skipReason(err), err)
 				return nil
 			}
 			items, err := s.fetchItems(ctx, v.ShareID, sk, withTrashed)
 			if err != nil {
+				skip.Record(ctx, skip.KindVault, v.ShareID, skipReason(err), err)
 				return nil
 			}
 			perVault[i] = items
