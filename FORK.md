@@ -1,6 +1,6 @@
 # Ezopek/proton-cli — fork rules
 
-This is the operator's fork of [`roman-16/proton-cli`](https://github.com/roman-16/proton-cli) (Upstream, MIT). It exists to supply the Backend binary for [`Ezopek/ezop-proton-calendar-mcp`](https://github.com/Ezopek/ezop-proton-calendar-mcp), a local MCP server for Proton Calendar. That server's PRD records why the fork exists and what it should fix (PRD §7, addendum §B and §F).
+This is the operator's fork of [`roman-16/proton-cli`](https://github.com/roman-16/proton-cli) (Upstream, MIT). It exists to supply the Backend binary for [`Ezopek/ezop-proton-calendar-mcp`](https://github.com/Ezopek/ezop-proton-calendar-mcp), a local MCP server for Proton Calendar. That server's PRD records why the fork exists and what it should fix (PRD §7, addendum §B and §F). It also supplies the Backend for the operator's Hermes plugin for Proton Pass ([`Ezopek/hermes-protonpass-tools`](https://github.com/Ezopek/hermes-protonpass-tools), private). Pass patches are tracked in the GitHub project "Proton Pass" (user project #5), Calendar ones in "Proton Calendar" (#2).
 
 This file is the only place where the fork's own conventions are written down. Everything else in the repository is Upstream's: its README, AGENTS.md, CONTRIBUTING.md and docs apply unchanged unless this file says otherwise.
 
@@ -143,6 +143,8 @@ Gaps are tracked as issues in this repository. Each patch:
 - stays small and focused, in Upstream's style and with Upstream's tests (see Upstream's CONTRIBUTING.md);
 - fits Upstream's scope rule of web-client parity, which every calendar gap in the MCP PRD does;
 - is offered Upstream as an issue or PR at the same time as it ships here.
+
+Exception, by the operator's decision of 2026-11-09: the Pass patches (`patch/pass-secret-frames`, `patch/pass-skipped-vault`) are, for now, not offered Upstream. The branches stay clean contribution branches so they can be offered later.
 
 The fork does not wait for Upstream. How far it may diverge is the operator's judgment, based on how Upstream responds.
 
