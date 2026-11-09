@@ -94,6 +94,8 @@ Create an item.
 
 A secret is read from a file, never from a flag value: --secret-file NAME=FILE, and - as the file reads standard input. NAME is cvv, number, password, pin, private-key, totp-uri, or any name at all, which makes a hidden custom field of it.
 
+--secret-frames - reads the password, note, username and email from standard input exactly as sent, with no trimming. Standard input is the line secret-frames/1, then one frame per field: NAME:LENGTH, a newline, LENGTH bytes, a newline. NAME is password, note, username or email, each at most once and never empty, and the input is at most 1 MiB. A frame sets the item's own field, never a custom field of the same name, and is refused beside --note, --username, --email, --secret-file or --generate-password setting that field. Only a login has a username, and only a login or an identity has an email.
+
 --generate-password makes one instead, so a new login needs no file: it is shaped by the same flags `pass generate` takes.
 
 --url takes an address, which fills on it, its parent domain and their subdomains. A rule in front fills it more narrowly: exact-host:, exact-url:, starts-with:, pattern: or never:. A regex: rule can only be set in the app.
@@ -115,6 +117,7 @@ proton pass items create --name Router --generate-password --words 5
 proton pass items create --type note --name 'Door codes' --note 'Front: 1234'
 proton pass items create --type credit-card --name 'Travel card' --holder 'Roman' --expiry 2030-04 --secret-file number=/run/secrets/card
 proton pass items create --type custom --name Router --field 'Network/SSID=home' --secret-file 'Network/Key=/run/secrets/wifi'
+proton pass items create --name GitHub --url github.com --secret-frames - < frames.txt
 ```
 
 | Flag | Description |
@@ -158,6 +161,7 @@ proton pass items create --type custom --name Router --field 'Network/SSID=home'
 | `--reddit string` | Set the reddit (identity) |
 | `--second-phone string` | Set the second phone (identity) |
 | `--secret-file stringArray` | Read a secret field from a file, as NAME=FILE; - is stdin (repeatable) |
+| `--secret-frames string` | Read the password, the note, the username and the email from standard input as length-prefixed frames, byte for byte; - is stdin |
 | `--security string` | Wi-Fi security (wifi): WPA, WPA2, WPA3, WEP |
 | `--separator string` | What stands between the words of a passphrase: comma, digit, hyphen, period, space, symbol, underscore (default `hyphen`) |
 | `--social-security-number string` | Set the social security number (identity) |
@@ -583,6 +587,10 @@ Change an item's fields.
 
 A secret is read from a file, never from a flag value: --secret-file NAME=FILE, and - as the file reads standard input. NAME is cvv, number, password, pin, private-key, totp-uri, or any name at all, which makes a hidden custom field of it.
 
+--secret-frames - reads the password, note, username and email from standard input exactly as sent, with no trimming. Standard input is the line secret-frames/1, then one frame per field: NAME:LENGTH, a newline, LENGTH bytes, a newline. NAME is password, note, username or email, each at most once and never empty, and the input is at most 1 MiB. A frame sets the item's own field, never a custom field of the same name, and is refused beside --note, --username, --email, --secret-file or --generate-password setting that field. Only a login has a username, and only a login or an identity has an email.
+
+A password, username or email given for an item that has none is refused, however it is given: a password needs a login or a Wi-Fi item, a username a login, and an email a login or an identity.
+
 --generate-password replaces the password with one it makes.
 
 --url replaces every URL the login has, and takes the rules `items create` lists: exact-host:, exact-url:, starts-with:, pattern: and never:.
@@ -598,6 +606,7 @@ proton pass items update REF
 ```bash
 proton pass items update GitHub --secret-file password=/run/secrets/github
 proton pass items update GitHub --secret-file password=-
+proton pass items update GitHub --secret-frames - < frames.txt
 proton pass items update GitHub --username roman-16 --url github.com
 proton pass items update GitHub --url github.com --url exact-url:https://github.com/login
 proton pass items update GitHub --generate-password
@@ -653,6 +662,7 @@ proton pass items update shop --clear-simplelogin-note
 | `--reddit string` | Replace the reddit (identity) |
 | `--second-phone string` | Replace the second phone (identity) |
 | `--secret-file stringArray` | Read a secret field from a file, as NAME=FILE; - is stdin (repeatable) |
+| `--secret-frames string` | Read the password, the note, the username and the email from standard input as length-prefixed frames, byte for byte; - is stdin |
 | `--security string` | Wi-Fi security (wifi): WPA, WPA2, WPA3, WEP |
 | `--separator string` | What stands between the words of a passphrase: comma, digit, hyphen, period, space, symbol, underscore (default `hyphen`) |
 | `--simplelogin-note string` | Replace the note SimpleLogin keeps beside the address (alias) |
