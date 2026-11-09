@@ -24,7 +24,7 @@ proton pass trash empty
 
 List what is in the trash.
 
-What a hidden vault holds in its trash is left out.
+What a hidden vault holds in its trash is left out unless --vault names it.
 
 ```
 proton pass trash list
@@ -32,6 +32,7 @@ proton pass trash list
 
 ```bash
 proton pass trash list
+proton pass trash list --vault Work
 ```
 
 | Flag | Description |
@@ -40,6 +41,7 @@ proton pass trash list
 | `--limit int` | How many items per page; 0 for all of them |
 | `--page int` | Which page of results, counting from zero |
 | `--sort string` | Order by: name, type, modified (default `name`) |
+| `--vault string` | Match only this vault, by name or ID |
 
 ## `restore`
 

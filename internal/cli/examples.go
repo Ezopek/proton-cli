@@ -1424,7 +1424,10 @@ var examples = map[string][]string{
 	},
 	"proton pass aliases enable":  {"proton pass aliases enable shop"},
 	"proton pass aliases disable": {"proton pass aliases disable shop"},
-	"proton pass trash list":      {"proton pass trash list"},
+	"proton pass trash list": {
+		"proton pass trash list",
+		"proton pass trash list --vault Work",
+	},
 	"proton pass trash restore": {
 		"proton pass trash restore GitHub",
 		"proton pass trash restore --all",
