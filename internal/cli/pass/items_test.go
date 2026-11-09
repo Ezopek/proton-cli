@@ -1,9 +1,17 @@
 package pass
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
 	"testing"
 
+	"github.com/roman-16/proton-cli/internal/account/keys"
+	"github.com/roman-16/proton-cli/internal/app"
+	"github.com/roman-16/proton-cli/internal/proton"
 	passsvc "github.com/roman-16/proton-cli/internal/service/pass"
+	"github.com/roman-16/proton-cli/internal/ui"
 )
 
 func historyValue(it passsvc.Item, label string) string {
@@ -45,5 +53,42 @@ func TestAnExcludedItemSaysSo(t *testing.T) {
 	}
 	if got := historyValue(passsvc.Item{Type: "login"}, "Monitor"); got != "" {
 		t.Errorf("a login Pass Monitor checks shows Monitor %q", got)
+	}
+}
+
+// oneVaultDoer holds a single vault whose keys cannot be fetched.
+type oneVaultDoer struct{}
+
+func (oneVaultDoer) Do(context.Context, proton.Request) (*proton.Response, error) { return nil, nil }
+
+func (oneVaultDoer) Decode(_ context.Context, r proton.Request, out any) error {
+	if r.Method == "GET" && r.Path == "/pass/v1/share" {
+		return json.Unmarshal([]byte(`{"Shares":[{"ShareID":"vault1","VaultID":"v1","TargetType":1,"Owner":true,"ShareRoleID":"1"}]}`), out)
+	}
+	return fmt.Errorf("nothing to answer %s %s with", r.Method, r.Path)
+}
+
+// A listing over a vault that cannot be read is not the listing of an empty one:
+// the response says something is missing.
+func TestItemsListSaysWhenAVaultCouldNotBeRead(t *testing.T) {
+	var out, errb bytes.Buffer
+	a := &app.App{
+		Pass: passsvc.New(oneVaultDoer{}, func(context.Context) (*keys.Unlocked, error) { return &keys.Unlocked{}, nil }),
+		UI:   ui.New(ui.Options{Format: ui.FormatJSON, Out: &out, Err: &errb}),
+	}
+	cmd := itemsListCmd()
+	cmd.SetContext(app.WithApp(context.Background(), a))
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("items list: %v", err)
+	}
+	var got struct {
+		Skipped int `json:"skipped"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, out.String())
+	}
+	if got.Skipped != 1 {
+		t.Errorf("skipped = %d, want 1:\n%s", got.Skipped, out.String())
 	}
 }
