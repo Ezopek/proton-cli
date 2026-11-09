@@ -217,13 +217,22 @@ func (s *Service) ItemsList(ctx context.Context, vaultFilter string) ([]Item, er
 	return out, nil
 }
 
-// ItemsTrashed is what the account holds in its trash, across every vault.
+// ItemsTrashed is what the account holds in its trash, across every vault that
+// is not hidden, or in the vault named by vaultFilter - by name or ID, hidden or
+// not - when there is one.
 //
 // Proton answers for a vault with its trash left out unless asked otherwise, so
 // this is the only listing that sees one - which is what a restore and an
 // emptying are for.
-func (s *Service) ItemsTrashed(ctx context.Context) ([]Item, error) {
-	full, err := s.itemsFull(ctx, "", browsed, true)
+func (s *Service) ItemsTrashed(ctx context.Context, vaultFilter string) ([]Item, error) {
+	if vaultFilter != "" {
+		shareID, err := s.ResolveVault(ctx, vaultFilter)
+		if err != nil {
+			return nil, err
+		}
+		vaultFilter = shareID
+	}
+	full, err := s.itemsFull(ctx, vaultFilter, browsed, true)
 	if err != nil {
 		return nil, err
 	}
