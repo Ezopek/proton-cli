@@ -30,6 +30,7 @@ const (
 	githubDir    = ".github"
 	workflowsDir = ".github/workflows"
 	forkRelease  = "fork-release.yml"
+	forkGate     = "fork-gate.yml"
 	// forkReleaseTag is the one tag pattern that may start the release workflow.
 	forkReleaseTag = "v*-ezop.*"
 )
@@ -44,7 +45,8 @@ var heldDisabledWorkflows = []string{"release.yml", "openapi-sync.yml", "stats.y
 
 // workflowRules selects the rule set for the .github/ checks. With neither
 // field set, only ci.yml may exist. allowForkRelease grants the exceptions of
-// fork-release.yml to the release profile. mirror selects the mirror profile,
+// fork-release.yml to the release profile, which also permits fork-gate.yml
+// under the common rules, with no exceptions. mirror selects the mirror profile,
 // for raw Upstream-shaped trees: fork-release.yml is then not a permitted
 // workflow at all, and the four held-disabled names are.
 type workflowRules struct {
@@ -58,7 +60,7 @@ func (r workflowRules) permitted() []string {
 	case r.mirror:
 		return append([]string{"ci.yml"}, heldDisabledWorkflows...)
 	case r.allowForkRelease:
-		return []string{"ci.yml", forkRelease}
+		return []string{"ci.yml", forkGate, forkRelease}
 	}
 	return []string{"ci.yml"}
 }
