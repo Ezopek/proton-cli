@@ -1,0 +1,26 @@
+name: Fork Gate
+
+on:
+  pull_request:
+    branches: [ezop]
+  push:
+    branches: [ezop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: jetify-com/devbox-install-action@8c6a66ed6273138b1915457069de78cb52fe3bd7 # v0.15.0
+      - run: devbox run just lint
+      - run: git diff --exit-code
+      - run: devbox run just test-fast
+      - run: devbox run just build

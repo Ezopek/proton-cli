@@ -9,10 +9,23 @@ import (
 )
 
 const (
-	shaCheckout  = "3d3c42e5aac5ba805825da76410c181273ba90b1"
-	shaSetupGo   = "b7ad1dad31e06c5925ef5d2fc7ad053ef454303e"
-	shaGoreleas  = "f06c13b6b1a9625abc9e6e439d9c05a8f2190e94"
-	shaUnlisted  = "0123456789abcdef0123456789abcdef01234567"
+	shaCheckout = "3d3c42e5aac5ba805825da76410c181273ba90b1"
+	shaSetupGo  = "b7ad1dad31e06c5925ef5d2fc7ad053ef454303e"
+	shaGoreleas = "f06c13b6b1a9625abc9e6e439d9c05a8f2190e94"
+	shaUnlisted = "0123456789abcdef0123456789abcdef01234567"
+	forkGateY   = `name: Fork Gate
+on:
+  pull_request:
+    branches: [ezop]
+permissions:
+  contents: read
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@` + shaCheckout + `
+      - run: echo gate
+`
 	forkReleaseY = `name: Fork Release
 on:
   push:
@@ -76,6 +89,7 @@ func TestCheckWorkflowsFileSet(t *testing.T) {
 		"ci only":                {"ci.yml": ci},
 		"fork-release only":      {"fork-release.yml": forkReleaseY},
 		"both":                   {"ci.yml": ci, "fork-release.yml": forkReleaseY},
+		"ci and fork-gate":       {"ci.yml": ci, "fork-gate.yml": forkGateY},
 		"issue templates":        {".github/ISSUE_TEMPLATE/bug.md": "x", ".github/ISSUE_TEMPLATE/sub/config.yml": "x"},
 		"no workflows directory": {".github/ISSUE_TEMPLATE/bug.md": "x"},
 		"nothing under .github":  {"docs/README.md": "x"},
@@ -128,6 +142,15 @@ func TestCheckWorkflowsFileSet(t *testing.T) {
 	t.Run("fork-release.yml is held when the exceptions are off", func(t *testing.T) {
 		fsys := wfTree(map[string]string{"fork-release.yml": forkReleaseY})
 		wantHeld(t, checkWorkflows(fsys, workflowRules{}), "workflow-set", "fork-release.yml")
+	})
+
+	t.Run("fork-gate.yml is held in the mirror profile", func(t *testing.T) {
+		wantHeld(t, checkWorkflows(wfTree(map[string]string{"fork-gate.yml": forkGateY}), mirrorRules), "workflow-set", "fork-gate.yml")
+	})
+
+	t.Run("fork-gate.yml gets no fork-release.yml exceptions", func(t *testing.T) {
+		src := strings.Replace(forkGateY, "  gate:\n", "  gate:\n    permissions:\n      contents: write\n", 1)
+		wantHeld(t, checkWorkflows(wfTree(map[string]string{"fork-gate.yml": src}), releaseRules), "workflow-permissions", "fork-gate.yml")
 	})
 
 	t.Run("unparseable and unreadable workflows are held", func(t *testing.T) {
