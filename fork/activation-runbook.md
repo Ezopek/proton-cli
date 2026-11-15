@@ -25,8 +25,10 @@ a rule, it cites the document that owns it.
   covers disabling a workflow path, creating or adjusting a ruleset, removing a
   secret, changing the default branch, enabling or disabling Actions, deleting a
   branch, closing a pull request, pushing a tag or a ref (the topic of an
-  evidence or record pull request included), re-running or canceling a run, and
-  landing evidence or a record. A workflow never performs one (AD-4); a person
+  activation evidence pull request included), re-running or canceling a run, and
+  landing activation evidence. The verification record of a tag is not one of
+  these: after the operator's own release steps it is submitted through an
+  ordinary coordinated request (section 6.9). A workflow never performs one (AD-4); a person
   or tool does so only for the Operator. Each such command in this file sits
   under the label **Manual Operator write**, whoever runs it. Nothing else in the
   file writes to GitHub.
@@ -866,7 +868,7 @@ freeze lifts at that moment; under option B the ruleset freeze of section 2.7a i
 released as step 8 of that section says, after this readback and not before. Write the activation evidence (section 5) from the
 captured values and land it through the `FORK.md` Git workflow. Later pushes
 follow `FORK.md`'s reviewed topics, and a topic that changes workflow files
-follows section 9.2.
+follows section 9.2 where that section says it applies.
 
 Stop: any deviation. Turn Actions off at once (step 2.7, `enabled=false`), list
 and dispose every run that started (section 3.5), and D1 returns to the Operator.
@@ -1746,9 +1748,12 @@ re-run: section 7.
 
 ### 6.9 Land the record
 
-**Manual Operator write.** In your own topic worktree for this change (`FORK.md`:
-each session works in its own linked worktree; do not use the helper clones,
-which must stay clean), through the `FORK.md` Git workflow:
+The release steps before this (the gates, the guard, the tag push, the release
+and `verify`) are the Operator's, or a written delegate's. Submitting the exact
+record `verify` printed is an ordinary coordinated request, not a Manual Operator
+write: any session may do it under `FORK.md`. In a topic worktree for that change
+(`FORK.md`: each session works in its own linked worktree; do not use the helper
+clones, which must stay clean), through the `FORK.md` Git workflow:
 
 ```sh
 git switch -c chore/record-v5-1-0-ezop-1 origin/ezop     # a <type>/<short-kebab-slug> topic
@@ -1758,9 +1763,9 @@ git add "fork/verification/$TAG.md"
 git commit -m "chore: record verified $TAG"                # body: Refs #1, never a closing keyword
 ```
 
-Open the pull request to `ezop` with `Refs #1`. Integrate by a reviewed exact
-fast-forward, or Rebase and merge with the old-to-new SHA mapping recorded
-(`FORK.md`). The record names the tagged commit `E`, not its own commit, so a
+Open the pull request to `ezop` with `Refs #1`. It lands as `FORK.md` says
+(required checks, then Rebase and merge, with the old-to-new SHA mapping
+recorded). The bytes of the record are not changed on the way. The record names the tagged commit `E`, not its own commit, so a
 rebase-merge does not void it. No re-run is started once `verify` has produced
 the record or while it is in review. A record is never edited, replaced or
 removed.
@@ -1888,8 +1893,9 @@ token.
 
 ### 7.2 Abandonment
 
-**Manual Operator write.** The Operator adds one `abandoned` record for the tag,
-`fork/verification/<TAG>.md`, landed exactly as in section 6.9. Its content is
+The Operator decides the abandonment and supplies its content; one `abandoned`
+record for the tag, `fork/verification/<TAG>.md`, is then submitted exactly as in
+section 6.9. Its content is
 five lines, plain ASCII, LF line ends, a final line feed, no blank line:
 
 ```text
@@ -2131,15 +2137,23 @@ commit is no longer an ancestor.
 
 ### 9.2 A topic that changes workflow files after Verified Activation
 
-Only the concrete change that can become live gets this treatment: a topic whose
-diff against the `ezop` tip adds, changes or removes a workflow file, a local
-action, `dependabot.yml` or any other file under `.github/` except
-`.github/ISSUE_TEMPLATE/**` (the Drift Guard, an action SHA bump, an edit to
-`ci.yml` or `fork-release.yml`), and a mirror update that does the same
-(section 8.1). The safe reading is that such a topic runs its own workflow
-definition as soon as its pull request is opened; the documentation does not say
-so in terms, and this design does not need it to be false. Check, on the topic
-branch based on the current `ezop` tip:
+`FORK.md` (the Changed-workflow rule under Following Upstream) decides which
+topics get this treatment, and this section only carries out the steps. It
+applies to a topic whose diff against the `ezop` tip adds, changes or removes
+`fork-release.yml` or any workflow that publishes, uses secrets or requests
+permissions beyond `contents: read`; adds or bumps an action that is not already
+used on `ezop` at that SHA; or touches a local action, `dependabot.yml` or any
+other file under `.github/` except `.github/ISSUE_TEMPLATE/**` (the Drift Guard,
+an action SHA bump, an edit to `fork-release.yml`), and to a mirror update that
+does the same (section 8.1). A change to a read-only workflow that stays within
+`contents: read`, uses no secrets, publishes nothing and uses only actions
+already used on `ezop` at the same pinned SHAs (an edit to `ci.yml` or
+`fork-gate.yml`, for instance) is not covered: it is ordinary reviewed CI
+delivery with Actions on, as `FORK.md` says. For the covered class, the safe
+reading is that such a topic runs its own workflow definition as soon as its pull
+request is opened; the documentation does not say so in terms, and this design
+does not need it to be false. Check, on the topic branch based on the current
+`ezop` tip, which files it changes:
 
 ```sh
 git fetch --no-tags origin ezop
@@ -2147,8 +2161,10 @@ git diff --no-renames --name-only origin/ezop...HEAD -- .github | grep -v '^\.gi
 ```
 
 If that prints nothing, the topic needs no admission, no check and no approval
-beyond the reviewed topic that `FORK.md` already requires. There is no recurring
-per-branch check. Otherwise:
+beyond the reviewed topic that `FORK.md` already requires. If it prints only
+workflow files that `FORK.md` classes as ordinary read-only CI (read their diff:
+the permissions, the secrets and every `uses:` line), the same holds. There is no
+recurring per-branch check. Otherwise:
 
 1. **Before turning Actions off:** no run of `fork-release.yml` is in progress,
    and any open release is noted (the commands of section 8.1 step 2). If a release
@@ -2176,7 +2192,7 @@ devbox run just lint
    that adds or bumps an action in the helper's action list, also confirm before
    merging that the SHA is the peeled commit of a release tag in the action's own
    repository (`peel https://github.com/OWNER/REPO vX.Y.Z` prints it). The topic
-   lands by the `FORK.md` path, preferably an exact fast-forward.
+   lands by the `FORK.md` path (the required checks, then Rebase and merge).
 4. **After landing, activation repeats from step 2.2**, with the preflight fresh
    (section 3), and a new Verified Activation is needed before Actions run again.
    The authoritative check is `guard --profile release` on the exact landed
@@ -2206,7 +2222,7 @@ delete, move, reuse or re-push a `v*-ezop.*` tag.
 | Preflight, ref sweep and push freeze | 3 | Actions run with no fresh passing preflight, or a push lands in the window | the fresh readback voids it; the run list shows unexpected runs | Actions off, dispose the runs, repeat from step 2.2; a tag pushed in the window stays immutable and is verified or abandoned |
 | Q4 risk and abandonment policy recorded before the first tag | 6.1 | the decision lines are absent | review of the evidence pull request | a refused or failed first release is recovered only by the Operator's abandonment policy |
 | First Release Tag only after Verified Activation | 6.1 | a tag is pushed while Actions are off: no run, the tag is spent | nothing in the helper | an explicit Operator recovery decision; never a re-tag |
-| A topic that changes workflow files: Actions off first | 9.2 | its own workflow definition runs in its pull request with Actions on | an unexpected run in the run list; review | Actions off, list and dispose the runs, check them against the secrets readback, requalify |
+| A topic that publishes, uses secrets or write permissions, or adds or bumps an action, or changes `fork-release.yml` or another `.github/` file (`FORK.md` Changed-workflow rule): Actions off first | 9.2 | its own workflow definition runs in its pull request with Actions on | an unexpected run in the run list; review | Actions off, list and dispose the runs, check them against the secrets readback, requalify |
 | Review of a topic that edits the helper or the profile lists | 9.2 | a defective helper change lands and is judged by itself | nothing automatic; review at landing only | a forward topic; a release the defect let through is abandoned |
 | `verify --status` before any re-run, and no re-run once a record is produced or in review | 7.1 | a re-run over a release object that exists: a second draft, or replaced assets under the baseline settings | `verify --status`: `none` with `release: Draft`, `unknown`, or `invalid` | a release that exists is abandoned and the next `N` is used; a draft is never deleted by tooling |
 | `verify --status` exit zero before Handover | 6.10 | there is no record, or it disagrees with the release | `verify --status` | no Handover; abandonment and the next `N`, or a re-run only for a tag with no release object |
@@ -2220,8 +2236,9 @@ workflow path (2.2, 8.1), the Actions switch (2.7, 8.1, 9.2), removing a secret
 (2.3), creating a ruleset (2.4), adjusting a ruleset and changing the default
 branch (2.10), canceling a run (3.5), deleting a branch (3.8.3), closing a pull
 request (3.8.4), pushing a tag or a ref (6.6, 8.1, 8.2, 9.1), re-running a run
-(7.1), and landing evidence or a record, its topic push and pull request
-included (2.8, 6.9, 6.11, 7.2, 8.1).
+(7.1), and landing activation evidence or a post-release or mirror observation,
+its topic push and pull request included (2.8, 6.11, 8.1). A verification
+record (6.9, 7.2) is submitted through an ordinary coordinated request instead.
 
 ## 11. Limits and open questions
 
