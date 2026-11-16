@@ -1595,7 +1595,7 @@ devbox run just build
 devbox run just snapshot
 ```
 
-Then read the versions the gates used and the snapshot's version line:
+Then read the versions the gates used and the snapshot's version:
 
 ```sh
 devbox run go version
@@ -1603,11 +1603,16 @@ devbox run goreleaser --version
 ls dist
 ```
 
-Run the snapshot's raw binary for the host (`dist/proton-cli_<os>_<arch>`; the
-exact file name is **Unverified until first use**) with `version`, and note the
-one line it prints. Write the gate-capture file, by hand, from what you read. It
-has the six keys that `fork/verification/README.md` fixes, and `verify` embeds
-them in the record under `attested`:
+Find the snapshot's raw binary for the host through `dist/artifacts.json`: the
+entry of type `Binary` whose `goos` and `goarch` are the host's names the file in
+its `path`. On linux/amd64 that path was observed to be
+`dist/unix_linux_amd64_v1/proton` (the build `id` from `.goreleaser.yaml` plus
+the platform, then the binary name `proton`), not a flat
+`dist/proton-cli_<os>_<arch>` file. Run it with `version`. It prints several
+fields, not one line (`Version`, `Go`, `Platform`, `Revision`); the version is
+the value of the `Version` field. Write the gate-capture file, by hand, from
+what you read. It has the six keys that `fork/verification/README.md` fixes, and
+`verify` embeds them in the record under `attested`:
 
 ```sh
 mkdir -p -m 700 "$KEEP"
@@ -1618,14 +1623,14 @@ printf '%s\n' \
   "lint-diff: none" \
   "go-version: GO_VERSION_NUMBER_ONLY" \
   "goreleaser-version: GORELEASER_VERSION_NUMBER_ONLY" \
-  "snapshot-version: THE_LINE_THE_SNAPSHOT_BINARY_PRINTED" > "$GATES"
+  "snapshot-version: THE_VALUE_OF_THE_VERSION_FIELD" > "$GATES"
 cat "$GATES"; wc -l < "$GATES"
 ```
 
 The file lives in `$KEEP`, not in `$WORK`: `verify` needs it after the tag is
 pushed and the run is over, which may be in another session, and the cleanup of
 `$WORK` would remove it. It holds only the commit, the gate names, two version
-numbers and one version line: no secret and no raw output. Do not delete it
+numbers and one version string: no secret and no raw output. Do not delete it
 until the terminal record for `TAG` has landed (section 6.10).
 
 Rules of the file: plain text, one `key: value` per line with one space after
