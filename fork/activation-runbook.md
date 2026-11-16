@@ -937,7 +937,7 @@ for f in ci.yml fork-release.yml; do
   printf '%s\n' "$body" | grep -nE '^[[:space:]]*(schedule|workflow_run|workflow_dispatch|repository_dispatch):' || echo "$f: none of those triggers"
 done
 body=$(git show "${EZ:?}:.github/workflows/fork-gate.yml") || echo "STOP: cannot read fork-gate.yml"
-printf '%s\n' "$body" | awk '/^on:/{f=1;next} f&&/^[^[:space:]#]/{f=0} f&&/^  [A-Za-z_]+:/{sub(/^  /,"");sub(/:.*/,"");print}' | sort | tr '\n' ' ' | grep -qx 'pull_request push workflow_dispatch ' && echo "fork-gate.yml: triggers are pull_request, push, workflow_dispatch" || echo "STOP: fork-gate.yml triggers are not exactly pull_request, push and workflow_dispatch"
+printf '%s\n' "$body" | awk '/^on:/{f=1;next} f&&/^[^[:space:]#]/{f=0} f&&/^  [^[:space:]#]/{sub(/^  /,"");sub(/:.*/,"");gsub(/["'"'"']/,"");print}' | sort | tr '\n' ' ' | grep -qx 'pull_request push workflow_dispatch ' && echo "fork-gate.yml: triggers are pull_request, push, workflow_dispatch" || echo "STOP: fork-gate.yml triggers are not exactly pull_request, push and workflow_dispatch"
 "$FR" guard --profile release "$EZ"
 ```
 
@@ -945,8 +945,9 @@ Pass: the listing shows exactly `.github/workflows/ci.yml`,
 `.github/workflows/fork-gate.yml` and `.github/workflows/fork-release.yml` (plus an
 approved Drift Guard path, if one exists), the loop prints "none of those triggers"
 for `ci.yml` and `fork-release.yml`, the `fork-gate.yml` check prints
-`fork-gate.yml: triggers are pull_request, push, workflow_dispatch` (its whole `on:`
-block holds those three keys and no other), and `guard
+`fork-gate.yml: triggers are pull_request, push, workflow_dispatch` (every entry
+at the first level of its `on:` block, quoted or not, is one of those three keys and
+none is missing; anything else, or a different layout of `on:`, prints `STOP`), and `guard
 --profile release` prints `checked <EZ>` and `release: pass`. Stop: anything
 else, including a `STOP: cannot read` line. The default branch is not changed,
 and Actions stay off.
