@@ -2191,8 +2191,11 @@ devbox run just lint
    shape. `guard --profile` is not used on an unlanded candidate. For a topic
    that adds or bumps an action in the helper's action list, also confirm before
    merging that the SHA is the peeled commit of a release tag in the action's own
-   repository (`peel https://github.com/OWNER/REPO vX.Y.Z` prints it). The topic
-   lands by the `FORK.md` path (the required checks, then Rebase and merge).
+   repository (`peel https://github.com/OWNER/REPO vX.Y.Z` prints it). Do not
+   merge on the strength of this step. The ruleset on `ezop` requires the `gate`
+   check, which cannot run while Actions are off, so this procedure has no
+   established way to land the topic: stop and return the decision to the
+   Operator.
 4. **After landing, activation repeats from step 2.2**, with the preflight fresh
    (section 3), and a new Verified Activation is needed before Actions run again.
    The authoritative check is `guard --profile release` on the exact landed
