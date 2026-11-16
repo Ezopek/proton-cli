@@ -75,7 +75,8 @@ Verified records only:
 - `attested.go-version` - the Go version the gates used, as a dotted number.
 - `attested.goreleaser-version` - the GoReleaser version the gates used, as a
   dotted number.
-- `attested.snapshot-version` - the version line the snapshot build reported.
+- `attested.snapshot-version` - the value of the `Version` field in the output of
+  the snapshot binary's `version` command.
 
 The `attested.*` fields are the Operator's attestation, copied from the
 gate-capture file, which uses the same names without the `attested.` prefix.
