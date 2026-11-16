@@ -230,8 +230,8 @@ git show origin/ezop:FORK.md
 Pass:
 
 - the listing shows `fork/activation-runbook.md`, `fork/verification/README.md`,
-  `scripts/fork-release/main.go`, `.github/workflows/ci.yml` and
-  `.github/workflows/fork-release.yml`, and none of `release.yml`,
+  `scripts/fork-release/main.go`, `.github/workflows/ci.yml`,
+  `.github/workflows/fork-gate.yml` and `.github/workflows/fork-release.yml`, and none of `release.yml`,
   `openapi-sync.yml`, `stats.yml`, `web.yml`;
 - the log shows the topics of Stories 1.1 to 1.10 of the epic;
 - the "Following Upstream" section of `FORK.md` at the tip carries the approved
@@ -718,7 +718,7 @@ else echo "STOP: the freeze or the probes are not confirmed; do not enable"; fi
 ```
 
 5. **Restrict, while Actions are on and the freeze is held.** Allow only the
-   actions the two workflows on `ezop` use (`actions/checkout`,
+   actions the workflows on `ezop` use (`actions/checkout`,
    `actions/setup-go`, `goreleaser/goreleaser-action`,
    `jetify-com/devbox-install-action`, `cachix/install-nix-action`) and the two
    cache actions that the pinned Devbox action calls (`actions/cache/restore`,
@@ -761,7 +761,7 @@ jq -c '[.[].workflow_runs[] | [.id, .run_attempt, .status, .conclusion, .updated
 ```
 
 7. **Pass** (the readback condition of Verified Activation under option B): no run
-   (`runs unchanged`); the workflow list holds `ci.yml`, `fork-release.yml` and
+   (`runs unchanged`); the workflow list holds `ci.yml`, `fork-gate.yml`, `fork-release.yml` and
    nothing `active` that is not one of them; step 6 as recorded. `web.yml` need not
    be registered or disabled: its only trigger left is a push to `main`, which the
    freeze holds now and `main-operator-only` holds after it. If it registers
@@ -834,7 +834,9 @@ if p=$(polget '') && [ "$(printf '%s' "$p" | jq -r '.enabled')" = false ]; then 
 installed app with that permission, can delete the freeze or change settings in
 the window; installed apps stay unknown. (b) A pull request opened by an outside
 account creates an event the freeze cannot hold (read-only token, no secrets, the
-approval policy applies); the readback would show its run. (c) Whether rulesets
+approval policy applies); so does a `workflow_dispatch` of `fork-gate.yml` by an
+account with write access (read-only token, no secrets); the readback would show
+either run. (c) Whether rulesets
 bind a workflow's `GITHUB_TOKEN` (Q3) and how a disallowed action fails are
 unverified. (d) After the window, the first mirror push to `main` that touches
 `web.yml`'s paths starts a Web run from `main`'s own file: a read-only job with no
@@ -910,29 +912,39 @@ if a future change is refused. All of it happens before the preflight.
 
 **First, the safe `ezop` tree, read back before the default branch changes.**
 `ezop` drops the four inherited Upstream workflows (`release.yml`,
-`openapi-sync.yml`, `stats.yml` and `web.yml` do not exist on it), so no Upstream
-`schedule`, `workflow_run` or `workflow_dispatch` workflow can run once `ezop` is
+`openapi-sync.yml`, `stats.yml` and `web.yml` do not exist on it), so no inherited Upstream
+workflow with a `schedule`, `workflow_run` or `workflow_dispatch` trigger can run once `ezop` is
 the default branch, and Upstream's `openapi-sync.yml` does not become the Drift
 Guard by default (D2 stays open). The only workflows allowed on `ezop` are
-`ci.yml`, `fork-release.yml` and a Drift Guard that D2 has approved (none exists
-yet). `web.yml` has a `push`-to-`main` trigger that still reads the file on
-`main`, so it is held by the freeze and the allow-list of section 2.7a, and
+`ci.yml`, `fork-gate.yml`, `fork-release.yml` and a Drift Guard that D2 has approved (none exists
+yet). `fork-gate.yml` is read-only CI (`contents: read`, no secret, no publishing)
+triggered by `pull_request` and `push` on `ezop` and by `workflow_dispatch`; that
+dispatch is the only manual trigger admitted on `ezop`, and the file is admitted
+with those three triggers only. `web.yml` has a `push`-to-`main` trigger that
+still reads the file on `main`,
+so it is held by the freeze and the allow-list of section 2.7a, and
 disabled by id if it ever registers (a 404 is not a disable). Read the tree back:
 
 ```sh
 cd "$CLONE"
 EZ=$(git ls-remote origin refs/heads/ezop | cut -f 1)
 git ls-tree -r --name-only "${EZ:?cannot read the ezop tip}" -- .github/workflows
-for f in ci.yml fork-release.yml; do
+for f in ci.yml fork-gate.yml fork-release.yml; do
   body=$(git show "${EZ:?}:.github/workflows/$f") || { echo "STOP: cannot read $f"; break; }
-  printf '%s\n' "$body" | grep -nE '^[[:space:]]*(schedule|workflow_run|workflow_dispatch|repository_dispatch):' || echo "$f: none of those triggers"
+  case "$f" in
+    fork-gate.yml) deny='schedule|workflow_run|repository_dispatch'; printf '%s\n' "$body" | grep -nE '^[[:space:]]*(pull_request|push|workflow_dispatch):' ;;
+    *) deny='schedule|workflow_run|workflow_dispatch|repository_dispatch' ;;
+  esac
+  printf '%s\n' "$body" | grep -nE "^[[:space:]]*($deny):" || echo "$f: none of those triggers"
 done
 "$FR" guard --profile release "$EZ"
 ```
 
-Pass: the listing shows exactly `.github/workflows/ci.yml` and
-`.github/workflows/fork-release.yml` (plus an approved Drift Guard path, if one
-exists), the loop prints "none of those triggers" for both files, and `guard
+Pass: the listing shows exactly `.github/workflows/ci.yml`,
+`.github/workflows/fork-gate.yml` and `.github/workflows/fork-release.yml` (plus an
+approved Drift Guard path, if one exists), the loop prints "none of those triggers"
+for all three files and, for `fork-gate.yml`, the three trigger lines
+`pull_request:`, `push:` and `workflow_dispatch:`, and `guard
 --profile release` prints `checked <EZ>` and `release: pass`. Stop: anything
 else, including a `STOP: cannot read` line. The default branch is not changed,
 and Actions stay off.
@@ -1082,9 +1094,9 @@ named maintainer) and exactly one disposition:
    re-run while it is disabled; whether that holds for completed runs after the
    switch is turned on is part of Q1.
 2. **Let a read-only run finish.** Only for a workflow whose permissions are
-   read-only (`ci.yml`). Re-read the run until it is completed.
+   read-only (`ci.yml`, `fork-gate.yml`). Re-read the run until it is completed.
 3. **Accept it as re-runnable.** Only for a workflow that stays enabled and whose
-   re-run cannot publish outside the fork release boundary: `ci.yml` (read-only),
+   re-run cannot publish outside the fork release boundary: `ci.yml` or `fork-gate.yml` (both read-only),
    or `fork-release.yml` (its own refusal governs a re-run, AD-7: a re-run of a
    tag with any record refuses, a re-run of a release that exists refuses, and a
    re-run of a tag with neither a record nor a release object is the sanctioned
@@ -1163,8 +1175,8 @@ done < "$WORK/heads.txt"
 ```
 
 Pass: `total_count` equals `enumerated`, and every path in the union is accounted
-for by this list: `.github/workflows/ci.yml`, `.github/workflows/fork-release.yml`,
-and the four Upstream paths (`release.yml`, `openapi-sync.yml`, `stats.yml`,
+for by this list: `.github/workflows/ci.yml`, `.github/workflows/fork-gate.yml`,
+`.github/workflows/fork-release.yml`, and the four Upstream paths (`release.yml`, `openapi-sync.yml`, `stats.yml`,
 `web.yml` under `.github/workflows/`). A GitHub-managed dynamic workflow in the
 API list is accounted for only as section 4 says. Stop: any other path; a
 branch that cannot be read.
@@ -1461,7 +1473,7 @@ values.
 - Go version used for the build: <x.y.z>
 
 ## Core readbacks, Actions off
-- Step 1: ezop contains the #1 tree (fork/activation-runbook.md, scripts/fork-release, fork-release.yml present; the four Upstream workflows absent): <pass | fail>
+- Step 1: ezop contains the #1 tree (fork/activation-runbook.md, scripts/fork-release, ci.yml, fork-gate.yml and fork-release.yml present; the four Upstream workflows absent): <pass | fail>
 - Step 2: release.yml <state>; openapi-sync.yml <state>; stats.yml <state>; web.yml <state>
 - Step 3: repository secrets total <n>, of the seven <0>; environments <n>, secrets in them <n>, of the seven <0>
 - Step 4: default_workflow_permissions <value>; can_approve_pull_request_reviews <value>; fork pull request approval policy <exact value string>; collaborators <n>, others with write <n>, pending invitations <n>
@@ -1807,7 +1819,7 @@ git merge-base --is-ancestor origin/main FETCH_HEAD && echo "main holds only Ups
 ```
 
 and repeat the settings readbacks of steps 2.2 to 2.4. Pass: runs exist only for
-`ci.yml` and `fork-release.yml` besides those the preflight (`runs.json`) listed; none for the
+`ci.yml`, `fork-gate.yml` and `fork-release.yml` besides those the preflight (`runs.json`) listed; none for the
 four Upstream paths; `upstream_shaped` is 0 (no fork `v5.1.0` release exists);
 the four paths still read `disabled_manually`; settings and rulesets are
 unchanged; `main` is an ancestor of `upstream/main`. Stop: any deviation. Turn
