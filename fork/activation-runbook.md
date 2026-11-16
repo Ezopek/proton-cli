@@ -402,14 +402,17 @@ jq -r --argjson me "$MEID" '[.name, ([.bypass_actors[] | select(.actor_type == "
 The last command compares each ruleset's bypass actors with the verified account
 without printing the identifier: the columns are the ruleset name, the number of
 bypass actors that are that account, and the number of bypass actors. Operator-only
-rulesets (`ezop-rebase`, `main-operator-only`, `tags-operator-only`) must show 1 and
+rulesets (`ezop-rebase`, `main-operator-only`, `tags-operator-only`) and
+`ezop: PR, gate + xreview`, whose own bypass is the same account, must show 1 and
 1; the others must show 0 and 0. A different user, or a second actor, is a stop.
 
 Pass, per the `FORK.md` table: `main-mirror` (branch, `refs/heads/main`: deletion
 and non-fast-forward, no bypass), `fork-release-tags` (tag, `refs/tags/v*-ezop.*`:
 deletion and update, no bypass), `ezop-deletion` (branch, `refs/heads/ezop`:
 deletion, no bypass) and `ezop-rebase` (branch, `refs/heads/ezop`:
-non-fast-forward, one user bypass, always), all with `enforcement` `active`.
+non-fast-forward, one user bypass, always), all with `enforcement` `active`; so is
+`ezop: PR, gate + xreview` (branch, `refs/heads/ezop`: pull request, linear history
+and the required checks `gate` and `xreview`, one user bypass, always).
 Rule type names, `include` and `bypass` shapes are **Unverified until first
 use**.
 
@@ -929,22 +932,21 @@ disabled by id if it ever registers (a 404 is not a disable). Read the tree back
 cd "$CLONE"
 EZ=$(git ls-remote origin refs/heads/ezop | cut -f 1)
 git ls-tree -r --name-only "${EZ:?cannot read the ezop tip}" -- .github/workflows
-for f in ci.yml fork-gate.yml fork-release.yml; do
+for f in ci.yml fork-release.yml; do
   body=$(git show "${EZ:?}:.github/workflows/$f") || { echo "STOP: cannot read $f"; break; }
-  case "$f" in
-    fork-gate.yml) deny='schedule|workflow_run|repository_dispatch'; printf '%s\n' "$body" | grep -nE '^[[:space:]]*(pull_request|push|workflow_dispatch):' ;;
-    *) deny='schedule|workflow_run|workflow_dispatch|repository_dispatch' ;;
-  esac
-  printf '%s\n' "$body" | grep -nE "^[[:space:]]*($deny):" || echo "$f: none of those triggers"
+  printf '%s\n' "$body" | grep -nE '^[[:space:]]*(schedule|workflow_run|workflow_dispatch|repository_dispatch):' || echo "$f: none of those triggers"
 done
+body=$(git show "${EZ:?}:.github/workflows/fork-gate.yml") || echo "STOP: cannot read fork-gate.yml"
+printf '%s\n' "$body" | awk '/^on:/{f=1;next} f&&/^[^[:space:]#]/{f=0} f&&/^  [A-Za-z_]+:/{sub(/^  /,"");sub(/:.*/,"");print}' | sort | tr '\n' ' ' | grep -qx 'pull_request push workflow_dispatch ' && echo "fork-gate.yml: triggers are pull_request, push, workflow_dispatch" || echo "STOP: fork-gate.yml triggers are not exactly pull_request, push and workflow_dispatch"
 "$FR" guard --profile release "$EZ"
 ```
 
 Pass: the listing shows exactly `.github/workflows/ci.yml`,
 `.github/workflows/fork-gate.yml` and `.github/workflows/fork-release.yml` (plus an
 approved Drift Guard path, if one exists), the loop prints "none of those triggers"
-for all three files and, for `fork-gate.yml`, the three trigger lines
-`pull_request:`, `push:` and `workflow_dispatch:`, and `guard
+for `ci.yml` and `fork-release.yml`, the `fork-gate.yml` check prints
+`fork-gate.yml: triggers are pull_request, push, workflow_dispatch` (its whole `on:`
+block holds those three keys and no other), and `guard
 --profile release` prints `checked <EZ>` and `release: pass`. Stop: anything
 else, including a `STOP: cannot read` line. The default branch is not changed,
 and Actions stay off.
